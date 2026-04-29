@@ -25,5 +25,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "My Application"
 include(":app")
-include(":lib-call")
+include(":lib_call")
  
