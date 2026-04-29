@@ -19,9 +19,11 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    maven(url = "https://download.linphone.org/maven_repository/")
   }
 }
 
 rootProject.name = "My Application"
 include(":app")
+include(":lib-call")
  
