@@ -1,0 +1,93 @@
+package com.neo.lib_call.ui
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.neo.lib_call.core.CallSessionManager
+import com.neo.lib_call.core.LinphoneManager
+import com.neo.lib_call.core.SipAccountRegistrar
+import com.neo.lib_call.model.CallRequest
+import com.neo.lib_call.model.CallState
+import com.neo.lib_call.util.Logger
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+internal data class CallUiState(
+  val destinationNumber: String = "",
+  val contactImage: String? = null,
+  val metadata: Map<String, String> = emptyMap(),
+  val callState: CallState = CallState.Idle,
+  val statusMessage: String = "Idle",
+)
+
+internal class CallViewModel(
+  private val request: CallRequest,
+  private val registrar: SipAccountRegistrar = SipAccountRegistrar(),
+) : ViewModel() {
+  private val _uiState = MutableStateFlow(
+    CallUiState(
+      destinationNumber = request.destinationNumber,
+      contactImage = request.contactImage,
+      metadata = request.metadata,
+    )
+  )
+  val uiState: StateFlow<CallUiState> = _uiState.asStateFlow()
+
+  init {
+    observeCallSession()
+    startCall()
+  }
+
+  private fun observeCallSession() {
+    viewModelScope.launch {
+      CallSessionManager.callState.collect { state ->
+        _uiState.update { current -> current.copy(callState = state) }
+      }
+    }
+    viewModelScope.launch {
+      CallSessionManager.statusMessage.collect { message ->
+        _uiState.update { current -> current.copy(statusMessage = message) }
+      }
+    }
+  }
+
+  private fun startCall() {
+    viewModelScope.launch {
+      try {
+        CallSessionManager.update(CallState.Initializing, "Preparing call")
+        registrar.register(request.credentials)
+        LinphoneManager.startOutgoingCall(request.destinationNumber)
+      } catch (throwable: Throwable) {
+        Logger.e("Unable to start SIP call", throwable)
+        CallSessionManager.update(
+          CallState.Failed,
+          throwable.message ?: "Failed to start SIP call"
+        )
+      }
+    }
+  }
+
+  fun endCall() {
+    LinphoneManager.endCall()
+  }
+
+  override fun onCleared() {
+    super.onCleared()
+    CallSessionManager.reset()
+  }
+
+  class Factory(
+    private val request: CallRequest,
+  ) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+      if (modelClass.isAssignableFrom(CallViewModel::class.java)) {
+        return CallViewModel(request) as T
+      }
+      throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+    }
+  }
+}
