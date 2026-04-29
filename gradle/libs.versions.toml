@@ -10,7 +10,7 @@ lifecycleViewModel = "2.10.0"
 activityCompose = "1.13.0"
 kotlin = "2.2.10"
 composeBom = "2024.09.00"
-linphone = "5.4.1"
+linphone = "5.4.87"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

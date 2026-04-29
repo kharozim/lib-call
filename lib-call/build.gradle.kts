@@ -50,7 +50,7 @@ afterEvaluate {
       create<MavenPublication>("release") {
         from(components["release"])
         groupId = "com.neo"
-        artifactId = "lib-call"
+        artifactId = "lib_call"
         version = "0.1.0"
       }
     }

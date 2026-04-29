@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.neo.lib_call.core.CallSessionManager
 import com.neo.lib_call.core.LinphoneManager
-import com.neo.lib_call.core.SipAccountRegistrar
+import com.neo.lib_call.core.RegisterUseCase
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.CallState
 import com.neo.lib_call.util.Logger
@@ -21,11 +21,12 @@ internal data class CallUiState(
   val metadata: Map<String, String> = emptyMap(),
   val callState: CallState = CallState.Idle,
   val statusMessage: String = "Idle",
+  val fatalError: String? = null,
 )
 
 internal class CallViewModel(
   private val request: CallRequest,
-  private val registrar: SipAccountRegistrar = SipAccountRegistrar(),
+  private val registrar: RegisterUseCase = RegisterUseCase(),
 ) : ViewModel() {
   private val _uiState = MutableStateFlow(
     CallUiState(
@@ -38,7 +39,6 @@ internal class CallViewModel(
 
   init {
     observeCallSession()
-    startCall()
   }
 
   private fun observeCallSession() {
@@ -66,8 +66,26 @@ internal class CallViewModel(
           CallState.Failed,
           throwable.message ?: "Failed to start SIP call"
         )
+        _uiState.update { current ->
+          current.copy(fatalError = throwable.message ?: "Failed to start SIP call")
+        }
       }
     }
+  }
+
+  fun beginCall() {
+    if (_uiState.value.callState == CallState.Initializing ||
+      _uiState.value.callState == CallState.Registering ||
+      _uiState.value.callState == CallState.Dialing
+    ) {
+      return
+    }
+    startCall()
+  }
+
+  fun setFatalError(message: String) {
+    CallSessionManager.update(CallState.Failed, message)
+    _uiState.update { current -> current.copy(fatalError = message) }
   }
 
   fun endCall() {

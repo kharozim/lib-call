@@ -2,16 +2,23 @@ package com.neo.lib_call.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.SipCredentials
 import com.neo.lib_call.util.IntentKeys
@@ -29,6 +36,44 @@ class CallActivity : ComponentActivity() {
 
     setContent {
       val state by viewModel.uiState.collectAsStateWithLifecycle()
+      val permissions = remember { requiredPermissions() }
+      val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+      ) { grantResults ->
+        val allGranted = permissions.all { grantResults[it] == true }
+        if (allGranted) {
+          viewModel.beginCall()
+        } else {
+          viewModel.setFatalError("Permission audio tidak lengkap. Aplikasi akan ditutup.")
+          finish()
+        }
+      }
+
+      LaunchedEffect(Unit) {
+        val alreadyGranted = permissions.all { permission ->
+          ContextCompat.checkSelfPermission(
+            this@CallActivity,
+            permission
+          ) == PackageManager.PERMISSION_GRANTED
+        }
+        if (alreadyGranted) {
+          viewModel.beginCall()
+        } else {
+          permissionLauncher.launch(permissions)
+        }
+      }
+
+      LaunchedEffect(state.fatalError) {
+        if (state.fatalError != null) {
+          Toast.makeText(
+            this@CallActivity,
+            state.fatalError,
+            Toast.LENGTH_LONG
+          ).show()
+          finish()
+        }
+      }
+
       MaterialTheme {
         Surface {
           CallScreen(
@@ -56,9 +101,10 @@ class CallActivity : ComponentActivity() {
     }
 
     private fun parseRequest(intent: Intent): CallRequest {
-      val destinationNumber = requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_DESTINATION_NUMBER)) {
-        "Missing destination number for CallActivity."
-      }
+      val destinationNumber =
+        requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_DESTINATION_NUMBER)) {
+          "Missing destination number for CallActivity."
+        }
       val username = requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_USERNAME)) {
         "Missing SIP username for CallActivity."
       }
@@ -72,7 +118,12 @@ class CallActivity : ComponentActivity() {
       return CallRequest(
         destinationNumber = destinationNumber,
         contactImage = intent.getStringExtra(IntentKeys.EXTRA_CONTACT_IMAGE),
-        metadata = MetadataConverter.fromSerializable(serializableExtra(intent, IntentKeys.EXTRA_METADATA)),
+        metadata = MetadataConverter.fromSerializable(
+          serializableExtra(
+            intent,
+            IntentKeys.EXTRA_METADATA
+          )
+        ),
         credentials = SipCredentials(
           username = username,
           password = password,
@@ -88,6 +139,13 @@ class CallActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         intent.getSerializableExtra(key)
       }
+    }
+
+    private fun requiredPermissions(): Array<String> {
+      // Linphone voice call only needs microphone access for the outgoing audio stream.
+      return arrayOf(
+        android.Manifest.permission.RECORD_AUDIO,
+      )
     }
   }
 }

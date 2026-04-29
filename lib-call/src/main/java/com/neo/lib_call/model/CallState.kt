@@ -4,6 +4,8 @@ enum class CallState {
   Idle,
   Initializing,
   Registering,
+  Registered,
+  RegistrationFailed,
   Dialing,
   Ringing,
   Connected,
