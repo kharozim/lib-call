@@ -4,16 +4,87 @@ import android.content.Context
 import com.neo.lib_call.model.CallState
 import com.neo.lib_call.model.SipCredentials
 import com.neo.lib_call.util.Logger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.linphone.core.Account
+import org.linphone.core.Call
+import org.linphone.core.Core
+import org.linphone.core.CoreListenerStub
+import org.linphone.core.Factory
+import org.linphone.core.RegistrationState
+import org.linphone.core.TransportType
 
 internal object LinphoneManager {
+  private val scope = CoroutineScope(Dispatchers.Default + Job())
+
   private var initialized = false
+  private var core: Core? = null
+  private var iterateJob: Job? = null
+  private var activeCall: Call? = null
+  private var activeCredentials: SipCredentials? = null
+  private var activeProxyDomain: String? = null
+  private var activeAccount: Account? = null
+
+  private val listener = object : CoreListenerStub() {
+    override fun onAccountRegistrationStateChanged(
+      core: Core,
+      account: Account,
+      state: RegistrationState,
+      message: String,
+    ) {
+      when (state) {
+        RegistrationState.Progress -> {
+          CallSessionManager.update(CallState.Registering, message.ifBlank { "Registering SIP account" })
+        }
+        RegistrationState.Ok -> {
+          CallSessionManager.update(CallState.Registered, message.ifBlank { "Registered" })
+        }
+        RegistrationState.Failed -> {
+          CallSessionManager.update(
+            CallState.RegistrationFailed,
+            message.ifBlank { "Registration failed" }
+          )
+        }
+        else -> Unit
+      }
+    }
+
+    override fun onCallStateChanged(core: Core, call: Call, state: Call.State, message: String) {
+      activeCall = call
+      when (state) {
+        Call.State.OutgoingInit -> CallSessionManager.update(CallState.Dialing, message.ifBlank { "Dialing" })
+        Call.State.OutgoingProgress -> CallSessionManager.update(CallState.Ringing, message.ifBlank { "Ringing" })
+        Call.State.Connected, Call.State.StreamsRunning -> {
+          CallSessionManager.update(CallState.Connected, message.ifBlank { "Connected" })
+        }
+        Call.State.End, Call.State.Error -> {
+          val endedState = if (state == Call.State.End) CallState.Ended else CallState.Failed
+          CallSessionManager.update(endedState, message.ifBlank { endedState.name })
+          activeCall = null
+        }
+        else -> Unit
+      }
+    }
+  }
 
   fun initialize(context: Context) {
     if (initialized) return
 
-    context.applicationContext
+    val factory = Factory.instance()
+    factory.setDebugMode(true, "CallSdk")
+    factory.enableLogCollection(org.linphone.core.LogCollectionState.Enabled)
+
+    val createdCore = factory.createCore(null, null, context.applicationContext)
+    createdCore.addListener(listener)
+    createdCore.isNetworkReachable = true
+    createdCore.start()
+    core = createdCore
     initialized = true
+//    startIterateLoop()
     Logger.d("Linphone manager initialized")
   }
 
@@ -23,23 +94,112 @@ internal object LinphoneManager {
     require(credentials.password.isNotBlank()) { "password is required" }
     require(credentials.domain.isNotBlank()) { "domain is required" }
 
+    if (activeCredentials == credentials && activeAccount?.state == RegistrationState.Ok) {
+      CallSessionManager.update(CallState.Registered, "Registered")
+      return
+    }
+
+    val linphoneCore = requireNotNull(core) { "Linphone core is missing." }
     CallSessionManager.update(CallState.Registering, "Registering SIP account")
-    delay(400)
+
+    val normalizedDomain = normalizeDomain(credentials.domain)
+    val identity = requireNotNull(
+      Factory.instance().createAddress("sip:${credentials.username}@$normalizedDomain")
+    ) {
+      "Unable to create SIP identity address."
+    }
+    val authInfo = Factory.instance().createAuthInfo(
+      credentials.username,
+      null,
+      credentials.password,
+      null,
+      null,
+      normalizedDomain
+    )
+    linphoneCore.clearAllAuthInfo()
+    linphoneCore.addAuthInfo(authInfo)
+
+    val accountParams = linphoneCore.createAccountParams()
+    accountParams.identityAddress = identity
+
+    val serverAddress = Factory.instance().createAddress("sip:$normalizedDomain")
+    serverAddress?.transport = TransportType.Udp
+    accountParams.serverAddress =  serverAddress
+    accountParams.isRegisterEnabled = true
+
+    val account = linphoneCore.createAccount(accountParams)
+    linphoneCore.addAccount(account)
+    linphoneCore.defaultAccount = account
+    linphoneCore.refreshRegisters()
+
+    activeCredentials = credentials
+    activeProxyDomain = normalizedDomain
+    activeAccount = account
+    waitForRegistration()
   }
 
   suspend fun startOutgoingCall(destinationNumber: String) {
     require(initialized) { "LinphoneManager is not initialized." }
     require(destinationNumber.isNotBlank()) { "destinationNumber is required" }
 
+    val linphoneCore = requireNotNull(core) { "Linphone core is missing." }
+    val domain = requireNotNull(activeProxyDomain) {
+      "Linphone account is not registered. Call registerAccount(...) first."
+    }
     CallSessionManager.update(CallState.Dialing, "Dialing $destinationNumber")
-    delay(500)
-    CallSessionManager.update(CallState.Ringing, "Ringing")
-    delay(700)
-    CallSessionManager.update(CallState.Connected, "Connected")
+
+    val address = requireNotNull(Factory.instance().createAddress("sip:$destinationNumber@$domain")) {
+      "Unable to create SIP destination address."
+    }
+    val call = linphoneCore.inviteAddress(address)
+    activeCall = call
+    waitForCallToConnect()
   }
 
   fun endCall() {
     if (!initialized) return
+    val linphoneCore = core ?: return
+    linphoneCore.terminateAllCalls()
+    activeCall = null
     CallSessionManager.update(CallState.Ended, "Call ended")
+  }
+
+  private fun startIterateLoop() {
+    if (iterateJob?.isActive == true) return
+    iterateJob = scope.launch {
+      while (isActive) {
+        core?.iterate()
+        delay(20)
+      }
+    }
+  }
+
+  private suspend fun waitForRegistration() {
+    repeat(50*2) {
+      val state = activeAccount?.state
+
+      if (state == RegistrationState.Ok) return
+      if (state == RegistrationState.Failed) {
+        throw IllegalStateException("SIP registration failed.")
+      }
+      delay(100)
+    }
+    if (activeAccount?.state != RegistrationState.Ok) {
+      throw IllegalStateException("Timed out while waiting for SIP registration.")
+    }
+  }
+
+  private suspend fun waitForCallToConnect() {
+    repeat(50) {
+      when (activeCall?.state) {
+        Call.State.Connected, Call.State.StreamsRunning -> return
+        Call.State.Error -> throw IllegalStateException("Call failed to connect.")
+        else -> delay(100)
+      }
+    }
+  }
+
+  private fun normalizeDomain(domain: String): String {
+    return domain.removePrefix("sip://").removePrefix("sip:").trim()
   }
 }

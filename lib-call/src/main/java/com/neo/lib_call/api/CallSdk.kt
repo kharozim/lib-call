@@ -12,8 +12,9 @@ object CallSdk {
   @Volatile
   private var initialized = false
 
-  fun init(contextRef: WeakReference<Context>) {
-    CallSdkInitializer.initialize(contextRef)
+  fun init(context: Context) {
+    val weakPreference: WeakReference<Context> = WeakReference(context.applicationContext)
+    CallSdkInitializer.initialize(weakPreference)
     initialized = true
   }
 
