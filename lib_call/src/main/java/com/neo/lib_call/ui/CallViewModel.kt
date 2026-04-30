@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 
 internal data class CallUiState(
   val destinationNumber: String = "",
+  val destinationName: String? = null,
   val contactImage: String? = null,
   val metadata: Map<String, String> = emptyMap(),
   val callState: CallState = CallState.Idle,
@@ -31,6 +32,7 @@ internal class CallViewModel(
   private val _uiState = MutableStateFlow(
     CallUiState(
       destinationNumber = request.destinationNumber,
+      destinationName = request.destinationName,
       contactImage = request.contactImage,
       metadata = request.metadata,
     )

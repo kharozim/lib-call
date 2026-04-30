@@ -43,6 +43,15 @@ internal fun CallScreen(
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+      state.destinationName?.let {
+        Text(
+          text = it,
+          style = MaterialTheme.typography.headlineSmall,
+          fontWeight = FontWeight.SemiBold,
+          color = androidx.compose.ui.graphics.Color.Gray
+        )
+      }
+
       if (state.contactImage != null) {
         AsyncImage(
           model = state.contactImage,
@@ -67,6 +76,8 @@ internal fun CallScreen(
           )
         }
       }
+
+
 
       Text(
         text = state.destinationNumber,
@@ -115,6 +126,7 @@ private fun Prev() {
     CallScreen(
       state = CallUiState(
         destinationNumber = "08123123",
+        destinationName = "Yuli",
 //        contactImage = "https://akcdn.detik.net.id/api/wm/2026/02/05/suraj-chavan-1770282300425_169.png?w=1200",
         metadata = mapOf("phone_id" to "123123"),
         callState = CallState.Connected,
