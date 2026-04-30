@@ -59,17 +59,12 @@ import com.neo.lib_call.model.SpeakerOut
  */
 @Composable
 internal fun CallScreen(
-  name: String,
-  callTimer: String,
-  callState: CallState,
-  signalState: String,
-  avatarUrl: String,
   isMicMuted: Boolean,
   speakerOutput: SpeakerOut?,
-  metaData: Map<String, String>,
+  state: CallUiState,
   onMuteClick: () -> Unit,
   onSpeakerClick: () -> Unit,
-  onNumpadClick: (it: String) -> Unit,
+  onNumpadClick: (number: String) -> Unit,
   onEndCallClick: () -> Unit,
 ) {
   var showDialPad by rememberSaveable { mutableStateOf(false) }
@@ -93,20 +88,27 @@ internal fun CallScreen(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
           Spacer(modifier = Modifier.height(20.dp))
           Text(
-            text = metaData["call_title"] ?: "Free Call",
+            text = state.metadata["call_title"] ?: "Free Call",
             style = MaterialTheme.typography.headlineSmall
           )
           Spacer(modifier = Modifier.height(60.dp))
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-          Text(text = callTimer, style = MaterialTheme.typography.bodyLarge)
+          Text(text = state.timeCall, style = MaterialTheme.typography.bodyLarge)
           Spacer(modifier = Modifier.height(55.dp))
-          CallAvatar(avatarUrl)
+          CallAvatar(state.contactImage)
           Spacer(modifier = Modifier.height(35.dp))
-          Text(text = name, style = MaterialTheme.typography.headlineSmall)
-          if (signalState.isNotEmpty()) {
-            Text(text = signalState, color = Color.Red, style = MaterialTheme.typography.bodyMedium)
+          Text(
+            text = state.destinationName ?: state.destinationNumber,
+            style = MaterialTheme.typography.headlineSmall
+          )
+          if (state.statusMessage.isNotEmpty()) {
+            Text(
+              text = state.statusMessage,
+              color = Color.Red,
+              style = MaterialTheme.typography.bodyMedium
+            )
           }
         }
 
@@ -123,13 +125,13 @@ internal fun CallScreen(
               SpeakerOut.Headphone -> SpeakerHeadphone
               else -> Icons.AutoMirrored.Outlined.VolumeUp
             },
-            label = metaData["call_btn_speaker"] ?: "Speaker",
+            label = state.metadata["call_btn_speaker"] ?: "Speaker",
             onClick = onSpeakerClick,
             backgroundColor = if (speakerOutput == SpeakerOut.LoadSpeaker) Color(0xFF00BABD) else
               Color(0xFFE9F8F9),
             iconTint = if (speakerOutput == SpeakerOut.LoadSpeaker) Color.White else
               Color(0xFF17666A),
-            enabled = callState !in listOf(
+            enabled = state.callState !in listOf(
               CallState.Ended,
               CallState.RegistrationFailed,
               CallState.Failed
@@ -138,18 +140,18 @@ internal fun CallScreen(
 
           RoundIconButton(
             icon = Icons.Filled.Dialpad,
-            label = metaData["call_numpad"] ?: "Numpad",
+            label = state.metadata["call_numpad"] ?: "Numpad",
             onClick = { showDialPad = true },
-            enabled = callState == CallState.Connected
+            enabled = state.callState == CallState.Connected
           )
 
           RoundIconButton(
             icon = Icons.Default.MicOff,
-            label = metaData["call_btn_mute"] ?: "Mute",
+            label = state.metadata["call_btn_mute"] ?: "Mute",
             onClick = onMuteClick,
             backgroundColor = if (isMicMuted) Color(0xFF00BABD) else Color(0xFFE9F8F9),
             iconTint = if (isMicMuted) Color.White else Color(0xFF17666A),
-            enabled = callState == CallState.Connected
+            enabled = state.callState == CallState.Connected
           )
         }
 
@@ -284,14 +286,18 @@ fun RoundIconButton(
 private fun Prev() {
   MaterialTheme {
     CallScreen(
-      name = "Yudha",
-      callTimer = "12:00",
-      callState = CallState.Idle,
-      signalState = "signal strength",
-      avatarUrl = "",
-      isMicMuted = true,
+      isMicMuted = false,
       speakerOutput = SpeakerOut.LoadSpeaker,
-      metaData = emptyMap(),
+      state = CallUiState(
+        destinationNumber = "08123123",
+        destinationName = "Ira Adi",
+        contactImage = "",
+        metadata = mapOf(),
+        callState = CallState.Connected,
+        statusMessage = "call end",
+        fatalError = "",
+        timeCall = "12:12"
+      ),
       onMuteClick = {},
       onSpeakerClick = {},
       onNumpadClick = {},

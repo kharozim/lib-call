@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.neo.lib_call.core.CallSessionManager
 import com.neo.lib_call.core.LinphoneManager
 import com.neo.lib_call.core.RegisterUseCase
+import com.neo.lib_call.core.TimerManager
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.CallState
 import com.neo.lib_call.util.Logger
@@ -23,11 +24,13 @@ internal data class CallUiState(
   val callState: CallState = CallState.Idle,
   val statusMessage: String = "Idle",
   val fatalError: String? = null,
+  val timeCall: String = "",
 )
 
 internal class CallViewModel(
   private val request: CallRequest,
-  private val registrar: RegisterUseCase = RegisterUseCase(),
+  private val timerManager: TimerManager,
+  private val registerUseCase: RegisterUseCase = RegisterUseCase(),
 ) : ViewModel() {
   private val _uiState = MutableStateFlow(
     CallUiState(
@@ -41,12 +44,27 @@ internal class CallViewModel(
 
   init {
     observeCallSession()
+    observeTimerSession()
+  }
+
+  private fun observeTimerSession() {
+    viewModelScope.launch {
+      timerManager.formattedTime.collect { timeCall ->
+        _uiState.update { it.copy(timeCall = timeCall) }
+      }
+    }
   }
 
   private fun observeCallSession() {
     viewModelScope.launch {
       CallSessionManager.callState.collect { state ->
         _uiState.update { current -> current.copy(callState = state) }
+        when (state) {
+          CallState.Connected -> timerManager.startTimer()
+          CallState.Ended -> timerManager.stopTimer()
+          CallState.Failed -> timerManager.stopTimer()
+          else -> Unit
+        }
       }
     }
     viewModelScope.launch {
@@ -60,7 +78,7 @@ internal class CallViewModel(
     viewModelScope.launch {
       try {
         CallSessionManager.update(CallState.Initializing, "Preparing call")
-        registrar.register(request.credentials)
+        registerUseCase.register(request.credentials)
         LinphoneManager.startOutgoingCall(request.destinationNumber)
       } catch (throwable: Throwable) {
         Logger.e("Unable to start SIP call", throwable)
@@ -101,11 +119,12 @@ internal class CallViewModel(
 
   class Factory(
     private val request: CallRequest,
+    private val timerManager: TimerManager,
   ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
       if (modelClass.isAssignableFrom(CallViewModel::class.java)) {
-        return CallViewModel(request) as T
+        return CallViewModel(request, timerManager = timerManager) as T
       }
       throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }

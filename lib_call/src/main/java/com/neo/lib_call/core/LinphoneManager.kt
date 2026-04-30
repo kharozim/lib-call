@@ -4,9 +4,6 @@ import android.content.Context
 import com.neo.lib_call.model.CallState
 import com.neo.lib_call.model.SipCredentials
 import com.neo.lib_call.util.Logger
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import org.linphone.core.Account
 import org.linphone.core.AudioDevice
@@ -19,7 +16,6 @@ import org.linphone.core.RegistrationState
 import org.linphone.core.TransportType
 
 internal object LinphoneManager {
-  private val scope = CoroutineScope(Dispatchers.Default + Job())
 
   private var initialized = false
   private var core: Core? = null

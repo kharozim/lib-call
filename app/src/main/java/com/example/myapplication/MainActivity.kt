@@ -45,7 +45,8 @@ fun CallScreen() {
   Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
     val context = LocalContext.current
     val destination by remember { mutableStateOf("085600431521") }
-    val name by remember { mutableStateOf("Arman") }
+    val name by remember { mutableStateOf("Jack Sparrow") }
+    val image by remember { mutableStateOf("https://akcdn.detik.net.id/api/wm/2026/02/05/suraj-chavan-1770282300425_169.png?w=1200") }
     val user by remember { mutableStateOf("1012") }
     val pass by remember { mutableStateOf("5678") }
     val domain by remember { mutableStateOf("147.139.193.218:5551") }
@@ -74,12 +75,16 @@ fun CallScreen() {
         CallSdk.makeCall(
           context,
           destinationNumber = destination,
+          destinationName = name,
+          contactImage = image,
           username = user,
           password = pass,
           domain = domain,
+          metadata = mapOf(
+            "phone_id" to "123123"
+          )
         )
       }) { Text("Call") }
-
     }
   }
 }

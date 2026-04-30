@@ -1,5 +1,6 @@
 package com.neo.lib_call.ui
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -7,27 +8,29 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.neo.lib_call.core.TimerManager
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.SipCredentials
+import com.neo.lib_call.model.SpeakerOut
 import com.neo.lib_call.util.IntentKeys
 import com.neo.lib_call.util.MetadataConverter
 import java.io.Serializable
 
 class CallActivity : ComponentActivity() {
   private val viewModel: CallViewModel by viewModels {
-    CallViewModel.Factory(parseRequest(intent))
+    CallViewModel.Factory(parseRequest(intent), TimerManager())
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -80,10 +83,19 @@ class CallActivity : ComponentActivity() {
         Surface {
           CallScreen(
             state = state,
-            onEndCall = {
+            onEndCallClick = {
               viewModel.endCall()
               finish()
-            }
+            },
+            isMicMuted = false,
+            speakerOutput = SpeakerOut.Earpiece,
+            onMuteClick = {},
+            onSpeakerClick = {},
+            onNumpadClick = {},
+//            onEndCall = {
+//              viewModel.endCall()
+//              finish()
+//            }
           )
         }
       }
@@ -149,7 +161,7 @@ class CallActivity : ComponentActivity() {
     private fun requiredPermissions(): Array<String> {
       // Linphone voice call only needs microphone access for the outgoing audio stream.
       return arrayOf(
-        android.Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.RECORD_AUDIO,
       )
     }
   }
