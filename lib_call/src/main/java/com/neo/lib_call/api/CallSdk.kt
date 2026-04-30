@@ -21,6 +21,7 @@ object CallSdk {
   fun makeCall(
     context: Context,
     destinationNumber: String,
+    destinationName: String? = null,
     contactImage: String? = null,
     metadata: Map<String, String> = emptyMap(),
     username: String,
@@ -37,6 +38,7 @@ object CallSdk {
 
     val request = CallRequest(
       destinationNumber = destinationNumber,
+      destinationName = destinationName,
       contactImage = contactImage,
       metadata = metadata,
       credentials = SipCredentials(

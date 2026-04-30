@@ -1,11 +1,9 @@
 package com.example.myapplication
 
 import android.os.Bundle
-import android.provider.CallLog
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.annotation.Size
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,7 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -48,6 +45,7 @@ fun CallScreen() {
   Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
     val context = LocalContext.current
     val destination by remember { mutableStateOf("085600431521") }
+    val name by remember { mutableStateOf("Arman") }
     val user by remember { mutableStateOf("1012") }
     val pass by remember { mutableStateOf("5678") }
     val domain by remember { mutableStateOf("147.139.193.218:5551") }
@@ -66,6 +64,7 @@ fun CallScreen() {
           .padding(12.dp)
       ) {
         Text("Destination : $destination")
+        Text("Name : $name")
         Text("Username : $user")
         Text("Password : $pass")
         Text("Domain : $domain")

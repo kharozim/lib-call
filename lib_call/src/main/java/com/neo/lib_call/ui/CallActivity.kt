@@ -94,6 +94,7 @@ class CallActivity : ComponentActivity() {
     fun createIntent(context: Context, request: CallRequest): Intent {
       return Intent(context, CallActivity::class.java).apply {
         putExtra(IntentKeys.EXTRA_DESTINATION_NUMBER, request.destinationNumber)
+        putExtra(IntentKeys.EXTRA_DESTINATION_NAME, request.destinationName)
         putExtra(IntentKeys.EXTRA_CONTACT_IMAGE, request.contactImage)
         putExtra(IntentKeys.EXTRA_METADATA, MetadataConverter.toHashMap(request.metadata))
         putExtra(IntentKeys.EXTRA_USERNAME, request.credentials.username)
@@ -107,6 +108,7 @@ class CallActivity : ComponentActivity() {
         requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_DESTINATION_NUMBER)) {
           "Missing destination number for CallActivity."
         }
+      val destinationName = intent.getStringExtra(IntentKeys.EXTRA_DESTINATION_NAME)
       val username = requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_USERNAME)) {
         "Missing SIP username for CallActivity."
       }
@@ -119,6 +121,7 @@ class CallActivity : ComponentActivity() {
 
       return CallRequest(
         destinationNumber = destinationNumber,
+        destinationName = destinationName,
         contactImage = intent.getStringExtra(IntentKeys.EXTRA_CONTACT_IMAGE),
         metadata = MetadataConverter.fromSerializable(
           serializableExtra(
