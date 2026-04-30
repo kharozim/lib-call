@@ -74,6 +74,8 @@ class CallActivity : ComponentActivity() {
         }
       }
 
+      SetSystemBarAppearance(true)
+
       MaterialTheme {
         Surface {
           CallScreen(
