@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dialpad
@@ -36,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,9 +50,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.window.Dialog
 import cc.neo.sdkcall.ui.DialPad
 import coil.compose.AsyncImage
-import coil.compose.AsyncImagePainter
 import com.neo.lib_call.R
 import com.neo.lib_call.model.CallState
 import com.neo.lib_call.model.SpeakerOut
@@ -66,13 +69,20 @@ internal fun CallScreen(
   speakerOutput: SpeakerOut?,
   state: CallUiState,
   onMuteClick: () -> Unit,
-  onSpeakerClick: () -> Unit,
+  onSpeakerOutputSelected: (SpeakerOut) -> Unit,
   onNumpadClick: (number: String) -> Unit,
   onEndCallClick: () -> Unit,
 ) {
   var showDialPad by rememberSaveable { mutableStateOf(false) }
+  var showSpeakerDialog by rememberSaveable { mutableStateOf(false) }
 
-  BackHandler(showDialPad) { showDialPad = false }
+  BackHandler {
+    when {
+      showSpeakerDialog -> showSpeakerDialog = false
+      showDialPad -> showDialPad = false
+      else -> onEndCallClick()
+    }
+  }
 
   Scaffold(
     modifier = Modifier
@@ -129,7 +139,7 @@ internal fun CallScreen(
               else -> Icons.AutoMirrored.Outlined.VolumeUp
             },
             label = state.metadata["call_btn_speaker"] ?: "Speaker",
-            onClick = onSpeakerClick,
+            onClick = { showSpeakerDialog = true },
             backgroundColor = if (speakerOutput == SpeakerOut.LoadSpeaker) Color(0xFF00BABD) else
               Color(0xFFE9F8F9),
             iconTint = if (speakerOutput == SpeakerOut.LoadSpeaker) Color.White else
@@ -197,8 +207,117 @@ internal fun CallScreen(
           DialPad(onKeyPress = { if (it == "close") showDialPad = false else onNumpadClick(it) })
         }
       }
+
+      if (showSpeakerDialog) {
+        SpeakerOutputDialog(
+          currentOutput = speakerOutput,
+          availableOutputs = state.availableSpeakerOutputs,
+          onDismiss = { showSpeakerDialog = false },
+          onSelect = { output ->
+            showSpeakerDialog = false
+            onSpeakerOutputSelected(output)
+          }
+        )
+      }
     }
   }
+}
+
+@Composable
+private fun SpeakerOutputDialog(
+  currentOutput: SpeakerOut?,
+  availableOutputs: List<SpeakerOut>,
+  onDismiss: () -> Unit,
+  onSelect: (SpeakerOut) -> Unit,
+) {
+  val orderedOutputs = remember(availableOutputs) {
+    listOf(
+      SpeakerOut.Earpiece,
+      SpeakerOut.LoadSpeaker,
+      SpeakerOut.Bluethooth,
+      SpeakerOut.Headphone,
+    ).filter { availableOutputs.contains(it) }
+  }
+
+  Dialog(onDismissRequest = onDismiss) {
+    Surface(shape = RoundedCornerShape(16.dp)) {
+      Column(modifier = Modifier.padding(vertical = 12.dp)) {
+        Text(
+          text = "Audio output",
+          style = MaterialTheme.typography.titleMedium,
+          modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+        )
+
+        if (orderedOutputs.isEmpty()) {
+          Text(
+            text = "No audio output available",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+          )
+        } else {
+          orderedOutputs.forEach { output ->
+            SpeakerOutputRow(
+              output = output,
+              selected = output == currentOutput,
+              onClick = { onSelect(output) }
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun SpeakerOutputRow(
+  output: SpeakerOut,
+  selected: Boolean,
+  onClick: () -> Unit,
+) {
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .clickable(onClick = onClick)
+      .padding(horizontal = 20.dp, vertical = 14.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.SpaceBetween
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Icon(
+        imageVector = output.icon(),
+        contentDescription = null,
+        tint = if (selected) Color(0xFF00BABD) else Color(0xFF17666A)
+      )
+      Text(
+        text = output.label(),
+        modifier = Modifier.padding(start = 12.dp),
+        style = MaterialTheme.typography.bodyLarge
+      )
+    }
+    if (selected) {
+      Icon(
+        imageVector = Icons.Default.Check,
+        contentDescription = null,
+        tint = Color(0xFF00BABD)
+      )
+    }
+  }
+}
+
+private fun SpeakerOut.label(): String {
+  return when (this) {
+    SpeakerOut.Earpiece -> "Earpiece"
+    SpeakerOut.LoadSpeaker -> "Load speaker"
+    SpeakerOut.Bluethooth -> "Bluetooth"
+    SpeakerOut.Headphone -> "Headphone"
+  }
+}
+
+private fun SpeakerOut.icon() = when (this) {
+  SpeakerOut.Earpiece -> Icons.AutoMirrored.Outlined.VolumeUp
+  SpeakerOut.LoadSpeaker -> Icons.AutoMirrored.Outlined.VolumeUp
+  SpeakerOut.Bluethooth -> SpeakerBluetooth
+  SpeakerOut.Headphone -> SpeakerHeadphone
 }
 
 @Composable
@@ -303,7 +422,7 @@ private fun Prev() {
         timeCall = "12:12"
       ),
       onMuteClick = {},
-      onSpeakerClick = {},
+      onSpeakerOutputSelected = {},
       onNumpadClick = {},
       onEndCallClick = {}
     )

@@ -350,18 +350,21 @@ internal object LinphoneManager {
 
   private fun applyPreferredAudioRoute(linphoneCore: Core) {
     val currentOutput = linphoneCore.outputAudioDevice
-    if (currentOutput != null && currentOutput.hasCapability(AudioDevice.Capabilities.CapabilityPlay)) {
-      Logger.d("Keeping current output audio device=${currentOutput.type.name}")
+    if (currentOutput?.type?.isExternalPreferredRoute() == true &&
+      currentOutput.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
+    ) {
+      Logger.d("Keeping current external output audio device=${currentOutput.type.name}")
       return
     }
 
-    val preferredDevice = linphoneCore.audioDevices.firstOrNull {
-      it.type == AudioDevice.Type.Earpiece && it.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
-    } ?: linphoneCore.audioDevices.firstOrNull {
-      it.type == AudioDevice.Type.Speaker && it.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
-    } ?: linphoneCore.audioDevices.firstOrNull {
-      it.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
-    }
+    val preferredDevice =
+      findAudioDeviceForOutput(linphoneCore, SpeakerOut.Bluethooth)
+        ?: findAudioDeviceForOutput(linphoneCore, SpeakerOut.Headphone)
+        ?: findAudioDeviceForOutput(linphoneCore, SpeakerOut.Earpiece)
+        ?: findAudioDeviceForOutput(linphoneCore, SpeakerOut.LoadSpeaker)
+        ?: linphoneCore.audioDevices.firstOrNull {
+          it.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
+        }
 
     if (preferredDevice == null) {
       Logger.d("No preferred output audio device found")
@@ -417,6 +420,13 @@ internal object LinphoneManager {
 
       else -> null
     }
+  }
+
+  private fun AudioDevice.Type.isExternalPreferredRoute(): Boolean {
+    return this == AudioDevice.Type.Bluetooth ||
+      this == AudioDevice.Type.BluetoothA2DP ||
+      this == AudioDevice.Type.Headset ||
+      this == AudioDevice.Type.Headphones
   }
 
   private val DTMF_DIGITS = setOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '#')
