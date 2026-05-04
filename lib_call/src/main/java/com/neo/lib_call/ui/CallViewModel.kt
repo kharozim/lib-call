@@ -9,6 +9,7 @@ import com.neo.lib_call.core.RegisterUseCase
 import com.neo.lib_call.core.TimerManager
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.CallState
+import com.neo.lib_call.model.SpeakerOut
 import com.neo.lib_call.util.Logger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,9 @@ internal data class CallUiState(
   val metadata: Map<String, String> = emptyMap(),
   val callState: CallState = CallState.Idle,
   val statusMessage: String = "Idle",
+  val isMicMuted: Boolean = false,
+  val speakerOutput: SpeakerOut? = null,
+  val availableSpeakerOutputs: List<SpeakerOut> = emptyList(),
   val fatalError: String? = null,
   val timeCall: String = "",
 )
@@ -72,6 +76,17 @@ internal class CallViewModel(
         _uiState.update { current -> current.copy(statusMessage = message) }
       }
     }
+    viewModelScope.launch {
+      CallSessionManager.audioState.collect { audioState ->
+        _uiState.update { current ->
+          current.copy(
+            isMicMuted = audioState.isMicMuted,
+            speakerOutput = audioState.speakerOutput,
+            availableSpeakerOutputs = audioState.availableSpeakerOutputs,
+          )
+        }
+      }
+    }
   }
 
   private fun startCall() {
@@ -110,6 +125,24 @@ internal class CallViewModel(
 
   fun endCall() {
     LinphoneManager.endCall()
+  }
+
+  fun toggleMute() {
+    viewModelScope.launch {
+      LinphoneManager.toggleMute()
+    }
+  }
+
+  fun cycleSpeakerOutput() {
+    viewModelScope.launch {
+      LinphoneManager.cycleSpeakerOutput()
+    }
+  }
+
+  fun selectSpeakerOutput(output: SpeakerOut) {
+    viewModelScope.launch {
+      LinphoneManager.selectSpeakerOutput(output)
+    }
   }
 
   override fun onCleared() {

@@ -6,24 +6,39 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neo.lib_call.core.TimerManager
 import com.neo.lib_call.model.CallRequest
+import com.neo.lib_call.model.CallState
 import com.neo.lib_call.model.SipCredentials
-import com.neo.lib_call.model.SpeakerOut
 import com.neo.lib_call.util.IntentKeys
 import com.neo.lib_call.util.MetadataConverter
 import java.io.Serializable
@@ -39,6 +54,11 @@ class CallActivity : ComponentActivity() {
 
     setContent {
       val state by viewModel.uiState.collectAsStateWithLifecycle()
+      val showLoading = state.callState in listOf(
+        CallState.Initializing,
+        CallState.Registering,
+      )
+      var loadingMessage by remember { mutableStateOf("") }
       val permissions = remember { requiredPermissions() }
       val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -66,38 +86,46 @@ class CallActivity : ComponentActivity() {
         }
       }
 
-      LaunchedEffect(state.fatalError) {
-        if (state.fatalError != null) {
-          Toast.makeText(
-            this@CallActivity,
-            state.fatalError,
-            Toast.LENGTH_LONG
-          ).show()
+      LaunchedEffect(state.callState) {
+        when (val callState = state.callState) {
+          CallState.Initializing -> loadingMessage = "Initializing..."
+          CallState.Registering -> loadingMessage = "Registering.."
+          else -> loadingMessage = ""
+        }
+      }
+
+      if (showLoading) {
+        Loading(loadingMessage) { }
+      }
+
+      if (!state.fatalError.isNullOrEmpty()) {
+        ErrorDialog(state.fatalError.orEmpty()) {
+          viewModel.setFatalError("")
           finish()
         }
       }
 
       SetSystemBarAppearance(true)
 
+      BackHandler() {
+        viewModel.endCall()
+        finish()
+      }
+
       MaterialTheme {
-        Surface {
-          CallScreen(
-            state = state,
-            onEndCallClick = {
-              viewModel.endCall()
-              finish()
-            },
-            isMicMuted = false,
-            speakerOutput = SpeakerOut.Earpiece,
-            onMuteClick = {},
-            onSpeakerClick = {},
-            onNumpadClick = {},
-//            onEndCall = {
-//              viewModel.endCall()
-//              finish()
-//            }
-          )
-        }
+        CallScreen(
+          state = state,
+          onEndCallClick = {
+            viewModel.endCall()
+            finish()
+          },
+          isMicMuted = state.isMicMuted,
+          speakerOutput = state.speakerOutput,
+          onMuteClick = { viewModel.toggleMute() },
+          onSpeakerClick = { viewModel.cycleSpeakerOutput() },
+          onNumpadClick = {},
+        )
+
       }
     }
   }
@@ -163,6 +191,33 @@ class CallActivity : ComponentActivity() {
       return arrayOf(
         Manifest.permission.RECORD_AUDIO,
       )
+    }
+  }
+}
+
+@Composable
+private fun ErrorDialog(message: String, onDismiss: () -> Unit) {
+  Dialog(onDismissRequest = onDismiss) {
+    Text(
+      message, Modifier
+        .background(Color.White, RoundedCornerShape(12.dp))
+        .padding(vertical = 12.dp, horizontal = 18.dp)
+    )
+  }
+}
+
+
+@Composable
+private fun Loading(message: String, onDismissRequest: () -> Unit) {
+  Dialog(onDismissRequest = onDismissRequest) {
+    Column(
+      horizontalAlignment = Alignment.CenterHorizontally,
+      modifier = Modifier
+        .background(Color.White, RoundedCornerShape(12.dp))
+        .padding(24.dp)
+    ) {
+      CircularProgressIndicator(modifier = Modifier.size(32.dp))
+      Text(message, Modifier.padding(top = 8.dp), textAlign = TextAlign.Center)
     }
   }
 }

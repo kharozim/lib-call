@@ -1,8 +1,10 @@
 package com.neo.lib_call.core
 
 import android.content.Context
+import com.neo.lib_call.model.CallAudioState
 import com.neo.lib_call.model.CallState
 import com.neo.lib_call.model.SipCredentials
+import com.neo.lib_call.model.SpeakerOut
 import com.neo.lib_call.util.Logger
 import kotlinx.coroutines.delay
 import org.linphone.core.Account
@@ -16,7 +18,6 @@ import org.linphone.core.RegistrationState
 import org.linphone.core.TransportType
 
 internal object LinphoneManager {
-
   private var initialized = false
   private var core: Core? = null
   private var activeCall: Call? = null
@@ -36,7 +37,8 @@ internal object LinphoneManager {
         RegistrationState.Progress -> {
           CallSessionManager.update(
             CallState.Registering,
-            message.ifBlank { "Registering SIP account" })
+            message.ifBlank { "Registering SIP account" },
+          )
         }
 
         RegistrationState.Ok -> {
@@ -46,7 +48,7 @@ internal object LinphoneManager {
         RegistrationState.Failed -> {
           CallSessionManager.update(
             CallState.RegistrationFailed,
-            message.ifBlank { "Registration failed" }
+            message.ifBlank { "Registration failed" },
           )
         }
 
@@ -57,6 +59,7 @@ internal object LinphoneManager {
     override fun onCallStateChanged(core: Core, call: Call, state: Call.State, message: String) {
       activeCall = call
       Logger.d("onCallStateChanged state=$state message=${message.ifBlank { "<blank>" }}")
+
       when (state) {
         Call.State.OutgoingInit -> {
           audioFocusManager?.requestRingingFocus()
@@ -67,7 +70,7 @@ internal object LinphoneManager {
         Call.State.OutgoingProgress,
         Call.State.OutgoingRinging,
         Call.State.OutgoingEarlyMedia,
-          -> {
+        -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
           CallSessionManager.update(CallState.Ringing, message.ifBlank { "Ringing" })
@@ -81,12 +84,16 @@ internal object LinphoneManager {
         Call.State.End, Call.State.Error, Call.State.Released -> {
           val endedState = if (state == Call.State.Error) CallState.Failed else CallState.Ended
           CallSessionManager.update(endedState, message.ifBlank { endedState.name })
-          activeCall = null
+          if (state == Call.State.End || state == Call.State.Error || state == Call.State.Released) {
+            activeCall = null
+          }
           audioFocusManager?.releaseFocus()
         }
 
         else -> Unit
       }
+
+      refreshAudioState()
     }
   }
 
@@ -94,19 +101,21 @@ internal object LinphoneManager {
     if (initialized) return
 
     val factory = Factory.instance()
-//    factory.setDebugMode(true, "CallSdk")
     factory.enableLogCollection(org.linphone.core.LogCollectionState.Enabled)
 
     val createdCore = factory.createCore(null, null, context.applicationContext)
     createdCore.addListener(listener)
     createdCore.isNetworkReachable = true
     createdCore.start()
+
     core = createdCore
     audioFocusManager = CallAudioManager(context.applicationContext)
     initialized = true
+
     Logger.d("Initial ringback=${createdCore.ringback}")
     Logger.d("Linphone audio devices=${createdCore.audioDevices.joinToString { it.type.name }}")
     Logger.d("Linphone output device=${createdCore.outputAudioDevice?.type?.name}")
+    refreshAudioState()
     Logger.d("Linphone manager initialized")
   }
 
@@ -118,6 +127,7 @@ internal object LinphoneManager {
 
     if (activeCredentials == credentials && activeAccount?.state == RegistrationState.Ok) {
       CallSessionManager.update(CallState.Registered, "Registered")
+      refreshAudioState()
       return
     }
 
@@ -158,6 +168,7 @@ internal object LinphoneManager {
     activeProxyDomain = normalizedDomain
     activeAccount = account
     waitForRegistration()
+    refreshAudioState()
   }
 
   suspend fun startOutgoingCall(destinationNumber: String) {
@@ -168,6 +179,7 @@ internal object LinphoneManager {
     val domain = requireNotNull(activeProxyDomain) {
       "Linphone account is not registered. Call registerAccount(...) first."
     }
+
     CallSessionManager.update(CallState.Dialing, "Dialing $destinationNumber")
     val focusGranted = audioFocusManager?.requestRingingFocus() == true
     if (!focusGranted) {
@@ -179,6 +191,7 @@ internal object LinphoneManager {
       requireNotNull(Factory.instance().createAddress("sip:$destinationNumber@$domain")) {
         "Unable to create SIP destination address."
       }
+
     try {
       applyPreferredAudioRoute(linphoneCore)
 
@@ -194,7 +207,9 @@ internal object LinphoneManager {
         audioFocusManager?.releaseFocus()
         throw IllegalStateException("Linphone returned null call")
       }
-      waitForCallToConnect()
+
+      refreshAudioState()
+//      waitForCallToConnect()
     } catch (throwable: Throwable) {
       audioFocusManager?.releaseFocus()
       throw throwable
@@ -203,15 +218,81 @@ internal object LinphoneManager {
 
   fun endCall() {
     if (!initialized) return
+
     val linphoneCore = core ?: return
     linphoneCore.terminateAllCalls()
     activeCall = null
     audioFocusManager?.releaseFocus()
     CallSessionManager.update(CallState.Ended, "Call ended")
+    refreshAudioState()
+  }
+
+  fun toggleMute(): Boolean {
+    val call = activeCall ?: return false
+    val newMuted = !call.microphoneMuted
+    call.microphoneMuted = newMuted
+    CallSessionManager.updateMuteState(newMuted)
+    refreshAudioState()
+    Logger.d("Toggled microphone mute muted=$newMuted")
+    return newMuted
+  }
+
+  fun cycleSpeakerOutput(): SpeakerOut? {
+    val linphoneCore = core ?: return null
+    val availableOutputs = collectAvailableSpeakerOutputs(linphoneCore)
+    if (availableOutputs.isEmpty()) {
+      refreshAudioState()
+      return null
+    }
+
+    val currentOutput = resolveSelectedSpeakerOutput(linphoneCore, activeCall)
+    val currentIndex = availableOutputs.indexOf(currentOutput)
+    val nextOutput = availableOutputs[(currentIndex + 1).mod(availableOutputs.size)]
+    selectSpeakerOutput(nextOutput)
+    return nextOutput
+  }
+
+  fun selectSpeakerOutput(output: SpeakerOut): SpeakerOut? {
+    val linphoneCore = core ?: return null
+    val audioDevice = findAudioDeviceForOutput(linphoneCore, output)
+    if (audioDevice == null) {
+      Logger.d("No Linphone audio device found for output=${output.name}")
+      refreshAudioState()
+      return null
+    }
+
+    linphoneCore.outputAudioDevice = audioDevice
+    activeCall?.setOutputAudioDevice(audioDevice)
+    Logger.d(
+      "Selected speaker output=${output.name} device=${audioDevice.type.name} " +
+        "callState=${activeCall?.state?.name}"
+    )
+    refreshAudioState()
+    return output
+  }
+
+  fun refreshAudioState() {
+    val linphoneCore = core
+    if (linphoneCore == null) {
+      CallSessionManager.updateAudioState(CallAudioState())
+      return
+    }
+
+    val availableOutputs = collectAvailableSpeakerOutputs(linphoneCore)
+    val selectedOutput = resolveSelectedSpeakerOutput(linphoneCore, activeCall)
+    val isMicMuted = activeCall?.microphoneMuted ?: false
+
+    CallSessionManager.updateAudioState(
+      CallAudioState(
+        isMicMuted = isMicMuted,
+        speakerOutput = selectedOutput,
+        availableSpeakerOutputs = availableOutputs,
+      )
+    )
   }
 
   private suspend fun waitForRegistration() {
-    repeat(50 * 2) {
+    repeat(50) {
       val state = activeAccount?.state
 
       if (state == RegistrationState.Ok) return
@@ -220,6 +301,7 @@ internal object LinphoneManager {
       }
       delay(100)
     }
+
     if (activeAccount?.state != RegistrationState.Ok) {
       throw IllegalStateException("Timed out while waiting for SIP registration.")
     }
@@ -228,11 +310,16 @@ internal object LinphoneManager {
   private suspend fun waitForCallToConnect() {
     repeat(50) {
       when (activeCall?.state) {
-        Call.State.Connected, Call.State.StreamsRunning -> return
+        Call.State.Connected,
+        Call.State.StreamsRunning,
+        -> return
+
         Call.State.Error -> throw IllegalStateException("Call failed to connect.")
         else -> delay(100)
       }
     }
+
+    throw IllegalStateException("Timed out while waiting for call to connect.")
   }
 
   private fun normalizeDomain(domain: String): String {
@@ -240,18 +327,73 @@ internal object LinphoneManager {
   }
 
   private fun applyPreferredAudioRoute(linphoneCore: Core) {
-    val audioDevice = linphoneCore.audioDevices.firstOrNull {
-      it.type == AudioDevice.Type.Earpiece
-    } ?: linphoneCore.audioDevices.firstOrNull {
-      it.type == AudioDevice.Type.Speaker
+    val currentOutput = linphoneCore.outputAudioDevice
+    if (currentOutput != null && currentOutput.hasCapability(AudioDevice.Capabilities.CapabilityPlay)) {
+      Logger.d("Keeping current output audio device=${currentOutput.type.name}")
+      return
     }
 
-    if (audioDevice == null) {
+    val preferredDevice = linphoneCore.audioDevices.firstOrNull {
+      it.type == AudioDevice.Type.Earpiece && it.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
+    } ?: linphoneCore.audioDevices.firstOrNull {
+      it.type == AudioDevice.Type.Speaker && it.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
+    } ?: linphoneCore.audioDevices.firstOrNull {
+      it.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
+    }
+
+    if (preferredDevice == null) {
       Logger.d("No preferred output audio device found")
       return
     }
 
-    linphoneCore.outputAudioDevice = audioDevice
-    Logger.d("Selected output audio device=${audioDevice.type.name}")
+    linphoneCore.outputAudioDevice = preferredDevice
+    activeCall?.setOutputAudioDevice(preferredDevice)
+    Logger.d("Selected output audio device=${preferredDevice.type.name}")
+  }
+
+  private fun collectAvailableSpeakerOutputs(linphoneCore: Core): List<SpeakerOut> {
+    return linphoneCore.audioDevices.asSequence()
+      .filter { it.hasCapability(AudioDevice.Capabilities.CapabilityPlay) }
+      .mapNotNull { it.type.toSpeakerOutOrNull() }
+      .distinct()
+      .toList()
+  }
+
+  private fun resolveSelectedSpeakerOutput(core: Core, call: Call?): SpeakerOut? {
+    val device = call?.outputAudioDevice ?: core.outputAudioDevice ?: return null
+    return device.type.toSpeakerOutOrNull()
+  }
+
+  private fun findAudioDeviceForOutput(core: Core, output: SpeakerOut): AudioDevice? {
+    val preferredTypes = when (output) {
+      SpeakerOut.Earpiece -> listOf(AudioDevice.Type.Earpiece)
+      SpeakerOut.LoadSpeaker -> listOf(AudioDevice.Type.Speaker)
+      SpeakerOut.Bluethooth -> listOf(AudioDevice.Type.Bluetooth, AudioDevice.Type.BluetoothA2DP)
+      SpeakerOut.Headphone -> listOf(AudioDevice.Type.Headset, AudioDevice.Type.Headphones)
+    }
+
+    return preferredTypes.asSequence()
+      .mapNotNull { type ->
+        core.audioDevices.firstOrNull { device ->
+          device.type == type && device.hasCapability(AudioDevice.Capabilities.CapabilityPlay)
+        }
+      }
+      .firstOrNull()
+  }
+
+  private fun org.linphone.core.AudioDevice.Type.toSpeakerOutOrNull(): SpeakerOut? {
+    return when (this) {
+      AudioDevice.Type.Earpiece -> SpeakerOut.Earpiece
+      AudioDevice.Type.Speaker -> SpeakerOut.LoadSpeaker
+      AudioDevice.Type.Bluetooth,
+      AudioDevice.Type.BluetoothA2DP,
+      -> SpeakerOut.Bluethooth
+
+      AudioDevice.Type.Headset,
+      AudioDevice.Type.Headphones,
+      -> SpeakerOut.Headphone
+
+      else -> null
+    }
   }
 }
