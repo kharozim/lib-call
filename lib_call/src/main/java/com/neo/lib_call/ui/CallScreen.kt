@@ -43,11 +43,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import cc.neo.sdkcall.ui.DialPad
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import com.neo.lib_call.R
 import com.neo.lib_call.model.CallState
 import com.neo.lib_call.model.SpeakerOut
 
@@ -242,6 +245,7 @@ private fun CallAvatar(imageUrl: String?) {
       AsyncImage(
         model = imageUrl,
         contentDescription = null,
+        placeholder = painterResource(R.drawable.ic_placeholder_person),
         modifier = Modifier
           .fillMaxSize()
           .clip(CircleShape)
@@ -291,7 +295,7 @@ private fun Prev() {
       state = CallUiState(
         destinationNumber = "08123123",
         destinationName = "Ira Adi",
-        contactImage = "",
+        contactImage = "cumi",
         metadata = mapOf(),
         callState = CallState.Connected,
         statusMessage = "call end",

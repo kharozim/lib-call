@@ -1,0 +1,5 @@
+jdk:
+  - openjdk21
+
+install:
+  - ./gradlew :lib_call:clean :lib-call:publishReleasePublicationToMavenLocal -xtest --no-daemon
