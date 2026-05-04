@@ -123,7 +123,7 @@ class CallActivity : ComponentActivity() {
           speakerOutput = state.speakerOutput,
           onMuteClick = { viewModel.toggleMute() },
           onSpeakerClick = { viewModel.cycleSpeakerOutput() },
-          onNumpadClick = {},
+          onNumpadClick = { digit -> viewModel.sendDtmf(digit) },
         )
 
       }

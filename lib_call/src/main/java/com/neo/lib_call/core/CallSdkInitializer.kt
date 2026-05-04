@@ -4,8 +4,8 @@ import android.content.Context
 import java.lang.ref.WeakReference
 
 internal object CallSdkInitializer {
-  fun initialize(contextRef: WeakReference<Context>) {
+  fun initialize(contextRef: WeakReference<Context>, isDebug: Boolean) {
     ContextProvider.initialize(contextRef)
-    LinphoneManager.initialize(ContextProvider.requireContext())
+    LinphoneManager.initialize(ContextProvider.requireContext(), isDebug)
   }
 }

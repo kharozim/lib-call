@@ -97,7 +97,7 @@ internal object LinphoneManager {
     }
   }
 
-  fun initialize(context: Context) {
+  fun initialize(context: Context, isDebug : Boolean) {
     if (initialized) return
 
     val factory = Factory.instance()
@@ -106,10 +106,13 @@ internal object LinphoneManager {
     val createdCore = factory.createCore(null, null, context.applicationContext)
     createdCore.addListener(listener)
     createdCore.isNetworkReachable = true
+    createdCore.isEchoCancellationEnabled = true
+    createdCore.isAgcEnabled = true
     createdCore.start()
 
     core = createdCore
     audioFocusManager = CallAudioManager(context.applicationContext)
+    Logger.isLoggerActive = isDebug
     initialized = true
 
     Logger.d("Initial ringback=${createdCore.ringback}")
@@ -225,6 +228,25 @@ internal object LinphoneManager {
     audioFocusManager?.releaseFocus()
     CallSessionManager.update(CallState.Ended, "Call ended")
     refreshAudioState()
+  }
+
+  fun sendDtmf(value: String): Boolean {
+    val digit = value.singleOrNull() ?: return false
+    if (digit !in DTMF_DIGITS) return false
+
+    val call = activeCall ?: return false
+    if (call.state != Call.State.Connected && call.state != Call.State.StreamsRunning) {
+      return false
+    }
+
+    val result = call.sendDtmf(digit)
+    if (result != 0) {
+      Logger.d("Failed to send DTMF digit=$digit result=$result")
+      return false
+    }
+
+    Logger.d("Sent DTMF digit=$digit")
+    return true
   }
 
   fun toggleMute(): Boolean {
@@ -381,7 +403,7 @@ internal object LinphoneManager {
       .firstOrNull()
   }
 
-  private fun org.linphone.core.AudioDevice.Type.toSpeakerOutOrNull(): SpeakerOut? {
+  private fun AudioDevice.Type.toSpeakerOutOrNull(): SpeakerOut? {
     return when (this) {
       AudioDevice.Type.Earpiece -> SpeakerOut.Earpiece
       AudioDevice.Type.Speaker -> SpeakerOut.LoadSpeaker
@@ -396,4 +418,6 @@ internal object LinphoneManager {
       else -> null
     }
   }
+
+  private val DTMF_DIGITS = setOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '#')
 }
