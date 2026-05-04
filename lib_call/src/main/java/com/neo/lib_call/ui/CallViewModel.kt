@@ -139,6 +139,15 @@ internal class CallViewModel(
     }
   }
 
+  fun sendDtmf(value: String) {
+    viewModelScope.launch {
+      val sent = LinphoneManager.sendDtmf(value)
+      if (!sent) {
+        Logger.d("DTMF ignored value=$value state=${_uiState.value.callState}")
+      }
+    }
+  }
+
   fun selectSpeakerOutput(output: SpeakerOut) {
     viewModelScope.launch {
       LinphoneManager.selectSpeakerOutput(output)
