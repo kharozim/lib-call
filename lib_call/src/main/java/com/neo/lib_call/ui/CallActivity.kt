@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -107,11 +106,6 @@ class CallActivity : ComponentActivity() {
 
       SetSystemBarAppearance(true)
 
-      BackHandler() {
-        viewModel.endCall()
-        finish()
-      }
-
       MaterialTheme {
         CallScreen(
           state = state,
@@ -122,7 +116,7 @@ class CallActivity : ComponentActivity() {
           isMicMuted = state.isMicMuted,
           speakerOutput = state.speakerOutput,
           onMuteClick = { viewModel.toggleMute() },
-          onSpeakerClick = { viewModel.cycleSpeakerOutput() },
+          onSpeakerOutputSelected = { output -> viewModel.selectSpeakerOutput(output) },
           onNumpadClick = { digit -> viewModel.sendDtmf(digit) },
         )
 
