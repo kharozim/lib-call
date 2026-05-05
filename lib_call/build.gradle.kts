@@ -51,7 +51,7 @@ afterEvaluate {
         from(components["release"])
         groupId = "com.neo"
         artifactId = "lib_call"
-        version = "0.6.0"
+        version = "0.7.0"
       }
     }
   }
