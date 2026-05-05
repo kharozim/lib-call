@@ -137,7 +137,7 @@ internal object LinphoneManager {
     val linphoneCore = requireNotNull(core) { "Linphone core is missing." }
     CallSessionManager.update(CallState.Registering, "Registering SIP account")
 
-    val normalizedDomain = normalizeDomain(credentials.domain)
+    val normalizedDomain = credentials.domain
     val identity = requireNotNull(
       Factory.instance().createAddress("sip:${credentials.username}@$normalizedDomain")
     ) {
@@ -174,7 +174,7 @@ internal object LinphoneManager {
     refreshAudioState()
   }
 
-  suspend fun startOutgoingCall(destinationNumber: String) {
+  fun startOutgoingCall(destinationNumber: String, phoneId: String? = null) {
     require(initialized) { "LinphoneManager is not initialized." }
     require(destinationNumber.isNotBlank()) { "destinationNumber is required" }
 
@@ -203,6 +203,9 @@ internal object LinphoneManager {
       }
       params.mediaEncryption = MediaEncryption.None
       params.disableRinging(false)
+      phoneId?.let {
+        params.addCustomHeader("X-Telphone_ID", it)
+      }
 
       val call = linphoneCore.inviteAddressWithParams(address, params)
       activeCall = call
@@ -342,10 +345,6 @@ internal object LinphoneManager {
     }
 
     throw IllegalStateException("Timed out while waiting for call to connect.")
-  }
-
-  private fun normalizeDomain(domain: String): String {
-    return domain.removePrefix("sip://").removePrefix("sip:").trim()
   }
 
   private fun applyPreferredAudioRoute(linphoneCore: Core) {

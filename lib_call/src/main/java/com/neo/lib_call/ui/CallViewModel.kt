@@ -94,7 +94,7 @@ internal class CallViewModel(
       try {
         CallSessionManager.update(CallState.Initializing, "Preparing call")
         registerUseCase.register(request.credentials)
-        LinphoneManager.startOutgoingCall(request.destinationNumber)
+        LinphoneManager.startOutgoingCall(request.destinationNumber, request.metadata["phone_id"])
       } catch (throwable: Throwable) {
         Logger.e("Unable to start SIP call", throwable)
         CallSessionManager.update(
