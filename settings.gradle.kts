@@ -23,7 +23,7 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "My Application"
+rootProject.name = "Neo Call Sdk"
 include(":app")
 include(":lib_call")
  

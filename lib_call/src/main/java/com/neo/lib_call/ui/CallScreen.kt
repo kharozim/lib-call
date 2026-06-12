@@ -46,16 +46,22 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Dialog
 import cc.neo.sdkcall.ui.DialPad
 import coil.compose.AsyncImage
+import com.neo.lib_call.BuildConfig
 import com.neo.lib_call.R
 import com.neo.lib_call.model.CallState
+import com.neo.lib_call.model.RegisterState
 import com.neo.lib_call.model.SpeakerOut
+import com.neo.lib_call.util.Colors
 
 /**
  * Created by Kharozim
@@ -90,7 +96,7 @@ internal fun CallScreen(
       .navigationBarsPadding()
   ) { padding ->
     Box {
-      MultiLayerGradientBackground()
+//      MultiLayerGradientBackground()
       Column(
         modifier = Modifier
           .padding(padding)
@@ -98,28 +104,73 @@ internal fun CallScreen(
         verticalArrangement = Arrangement.SpaceBetween,
         horizontalAlignment = Alignment.CenterHorizontally
       ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-          Spacer(modifier = Modifier.height(20.dp))
+        Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 24.dp)
+        ) {
           Text(
-            text = state.metadata["call_title"] ?: "Operator Call",
-            style = MaterialTheme.typography.headlineSmall
+            text = state.metadata["call_title"] ?: "Telepon Customer",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
           )
-          Spacer(modifier = Modifier.height(60.dp))
+          Text(
+            text = "SIP: ${state.registerState.name}",
+            color = state.registerState.statusColor(),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 6.dp)
+          )
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-          Text(text = state.timeCall, style = MaterialTheme.typography.bodyLarge)
-          Spacer(modifier = Modifier.height(55.dp))
-          CallAvatar(state.contactImage)
-          Spacer(modifier = Modifier.height(35.dp))
-          Text(
-            text = state.destinationName ?: state.destinationNumber,
-            style = MaterialTheme.typography.headlineSmall
+          AsyncImage(
+            model = state.contactImage,
+            contentDescription = null,
+            placeholder = painterResource(R.drawable.ic_placeholder_person),
+            error = painterResource(R.drawable.ic_placeholder_person),
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+              .size(125.dp)
+              .clip(RoundedCornerShape(32.dp))
           )
-          if (state.statusMessage.isNotEmpty()) {
+
+          Spacer(modifier = Modifier.height(24.dp))
+          Text(
+            text = state.destinationName.orEmpty().ifEmpty { "Unknown Name" },
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.DarkGray
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          Text(
+            text = state.destinationNumber.ifEmpty { "Unknown Number" },
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.Gray,
+            modifier = Modifier
+              .background(
+                Color(0xFFF0F1F3),
+                CircleShape
+              )
+              .border(
+                1.dp,
+                Color(0xFFE1E1E1),
+                CircleShape
+              )
+              .padding(vertical = 4.dp, horizontal = 12.dp)
+          )
+          Spacer(modifier = Modifier.height(24.dp))
+          Text(
+            text = state.timeCall,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.DarkGray
+          )
+          if (state.callStateMessage.isNotEmpty()) {
             Text(
-              text = state.statusMessage,
-              color = Color.Red,
+              text = state.callStateMessage,
+              color = Color(0xFFFF5722),
               style = MaterialTheme.typography.bodyMedium
             )
           }
@@ -140,15 +191,14 @@ internal fun CallScreen(
             },
             label = state.metadata["call_btn_speaker"] ?: "Speaker",
             onClick = { showSpeakerDialog = true },
-            backgroundColor = if (speakerOutput == SpeakerOut.LoadSpeaker) Color(0xFF00BABD) else
-              Color(0xFFE9F8F9),
+            backgroundColor = if (speakerOutput == SpeakerOut.LoadSpeaker) Colors.Orange500 else
+              Colors.Orange10,
             iconTint = if (speakerOutput == SpeakerOut.LoadSpeaker) Color.White else
               Color(0xFF17666A),
             enabled = state.callState !in listOf(
               CallState.Ended,
-              CallState.RegistrationFailed,
               CallState.Failed
-            )
+            ) && state.registerState != RegisterState.Failed
           )
 
           RoundIconButton(
@@ -162,8 +212,8 @@ internal fun CallScreen(
             icon = Icons.Default.MicOff,
             label = state.metadata["call_btn_mute"] ?: "Mute",
             onClick = onMuteClick,
-            backgroundColor = if (isMicMuted) Color(0xFF00BABD) else Color(0xFFE9F8F9),
-            iconTint = if (isMicMuted) Color.White else Color(0xFF17666A),
+            backgroundColor = if (isMicMuted) Colors.Orange500 else Colors.Orange10,
+            iconTint = if (isMicMuted) Color.White else Colors.Orange500,
             enabled = state.callState == CallState.Connected
           )
         }
@@ -178,7 +228,7 @@ internal fun CallScreen(
             icon = Icons.Filled.Close,
             label = "",
             onClick = onEndCallClick,
-            backgroundColor = Color.Red,
+            backgroundColor = Colors.Red500,
             iconTint = Color.White
           )
 //          if (callStatus == "incoming") {
@@ -320,6 +370,20 @@ private fun SpeakerOut.icon() = when (this) {
   SpeakerOut.Headphone -> SpeakerHeadphone
 }
 
+private fun RegisterState.statusColor(): Color {
+  return when (this) {
+    RegisterState.Ok -> Color(0xFF008A6A)
+    RegisterState.Failed -> Color.Red
+    RegisterState.Progress,
+    RegisterState.Refreshing,
+      -> Color(0xFF17666A)
+
+    RegisterState.None,
+    RegisterState.Cleared,
+      -> Color.Gray
+  }
+}
+
 @Composable
 private fun MultiLayerGradientBackground() {
   Box(modifier = Modifier.fillMaxSize()) {
@@ -348,8 +412,8 @@ private fun MultiLayerGradientBackground() {
 private fun CallAvatar(imageUrl: String?) {
   Box(
     modifier = Modifier
-      .size(160.dp)
-      .clip(CircleShape)
+      .size(125.dp)
+      .clip(RoundedCornerShape(32.dp))
       .background(Color.LightGray),
     contentAlignment = Alignment.Center
   ) {
@@ -361,15 +425,6 @@ private fun CallAvatar(imageUrl: String?) {
         modifier = Modifier.size(80.dp)
       )
     } else {
-      AsyncImage(
-        model = imageUrl,
-        contentDescription = null,
-        placeholder = painterResource(R.drawable.ic_placeholder_person),
-        modifier = Modifier
-          .fillMaxSize()
-          .clip(CircleShape)
-          .border(2.dp, Color.Gray, CircleShape)
-      )
     }
   }
 }
@@ -379,14 +434,14 @@ fun RoundIconButton(
   icon: ImageVector,
   label: String,
   onClick: () -> Unit,
-  backgroundColor: Color = Color(0xFFE9F8F9),
-  iconTint: Color = Color(0xFF17666A),
+  backgroundColor: Color = Colors.Orange10,
+  iconTint: Color = Colors.Orange500,
   enabled: Boolean = true,
 ) {
   Column(horizontalAlignment = Alignment.CenterHorizontally) {
     Box(
       modifier = Modifier
-        .size(64.dp)
+        .size(72.dp)
         .clip(CircleShape)
         .background(if (enabled) backgroundColor else backgroundColor.copy(0.4f))
         .clickable(enabled = enabled, onClick = onClick),
@@ -395,10 +450,12 @@ fun RoundIconButton(
       Icon(icon, contentDescription = label, tint = if (enabled) iconTint else iconTint.copy(0.4f))
     }
     if (label.isNotBlank()) {
+      Spacer(Modifier.height(8.dp))
       Text(
         text = label,
-        style = MaterialTheme.typography.bodySmall,
-        color = if (enabled) Color.Gray else Color.Gray.copy(0.4f)
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        color = if (enabled) Colors.Gray600 else Colors.Gray600.copy(0.4f)
       )
     }
   }
@@ -417,7 +474,7 @@ private fun Prev() {
         contactImage = "cumi",
         metadata = mapOf(),
         callState = CallState.Connected,
-        statusMessage = "call end",
+        callStateMessage = "call end",
         fatalError = "",
         timeCall = "12:12"
       ),

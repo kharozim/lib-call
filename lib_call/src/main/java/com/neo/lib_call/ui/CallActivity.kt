@@ -37,12 +37,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neo.lib_call.core.TimerManager
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.CallState
+import com.neo.lib_call.model.RegisterState
 import com.neo.lib_call.model.SipCredentials
 import com.neo.lib_call.util.IntentKeys
 import com.neo.lib_call.util.MetadataConverter
 import java.io.Serializable
 
-class CallActivity : ComponentActivity() {
+internal class CallActivity : ComponentActivity() {
   private val viewModel: CallViewModel by viewModels {
     CallViewModel.Factory(parseRequest(intent), TimerManager())
   }
@@ -53,10 +54,8 @@ class CallActivity : ComponentActivity() {
 
     setContent {
       val state by viewModel.uiState.collectAsStateWithLifecycle()
-      val showLoading = state.callState in listOf(
-        CallState.Initializing,
-        CallState.Registering,
-      )
+      val showLoading = state.callState in listOf(CallState.Initializing) ||
+        state.registerState in listOf(RegisterState.Progress, RegisterState.Refreshing)
       var loadingMessage by remember { mutableStateOf("") }
       val permissions = remember { requiredPermissions() }
       val permissionLauncher = rememberLauncherForActivityResult(
@@ -85,11 +84,13 @@ class CallActivity : ComponentActivity() {
         }
       }
 
-      LaunchedEffect(state.callState) {
-        when (val callState = state.callState) {
-          CallState.Initializing -> loadingMessage = "Initializing..."
-          CallState.Registering -> loadingMessage = "Registering.."
-          else -> loadingMessage = ""
+      LaunchedEffect(state.callState, state.registerState, state.registerStateMessage) {
+        loadingMessage = when (state.registerState) {
+          RegisterState.Progress,
+          RegisterState.Refreshing,
+            -> state.registerStateMessage
+
+          else -> if (state.callState == CallState.Initializing) "Initializing..." else ""
         }
       }
 

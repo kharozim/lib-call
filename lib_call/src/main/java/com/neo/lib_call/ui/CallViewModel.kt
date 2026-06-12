@@ -3,12 +3,15 @@ package com.neo.lib_call.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.neo.lib_call.core.CallApiRequest
 import com.neo.lib_call.core.CallSessionManager
+import com.neo.lib_call.core.HitApiManager
 import com.neo.lib_call.core.LinphoneManager
 import com.neo.lib_call.core.RegisterUseCase
 import com.neo.lib_call.core.TimerManager
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.CallState
+import com.neo.lib_call.model.RegisterState
 import com.neo.lib_call.model.SpeakerOut
 import com.neo.lib_call.util.Logger
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +26,9 @@ internal data class CallUiState(
   val contactImage: String? = null,
   val metadata: Map<String, String> = emptyMap(),
   val callState: CallState = CallState.Idle,
-  val statusMessage: String = "Idle",
+  val callStateMessage: String = "Idle",
+  val registerState: RegisterState = RegisterState.None,
+  val registerStateMessage: String = "Not registered",
   val isMicMuted: Boolean = false,
   val speakerOutput: SpeakerOut? = null,
   val availableSpeakerOutputs: List<SpeakerOut> = emptyList(),
@@ -72,8 +77,18 @@ internal class CallViewModel(
       }
     }
     viewModelScope.launch {
-      CallSessionManager.statusMessage.collect { message ->
-        _uiState.update { current -> current.copy(statusMessage = message) }
+      CallSessionManager.callStatusMessage.collect { message ->
+        _uiState.update { current -> current.copy(callStateMessage = message) }
+      }
+    }
+    viewModelScope.launch {
+      CallSessionManager.registerState.collect { state ->
+        _uiState.update { current -> current.copy(registerState = state) }
+      }
+    }
+    viewModelScope.launch {
+      CallSessionManager.registerStatusMessage.collect { message ->
+        _uiState.update { current -> current.copy(registerStateMessage = message) }
       }
     }
     viewModelScope.launch {
@@ -92,12 +107,33 @@ internal class CallViewModel(
   private fun startCall() {
     viewModelScope.launch {
       try {
-        CallSessionManager.update(CallState.Initializing, "Preparing call")
+        CallSessionManager.updateCallState(CallState.Initializing, "Preparing call")
+        CallSessionManager.updateRegisterState(RegisterState.Progress, "Registering SIP account")
         registerUseCase.register(request.credentials)
-        LinphoneManager.startOutgoingCall(request.destinationNumber, request.metadata["phone_id"])
+        CallSessionManager.updateCallState(CallState.Dialing, "Calling")
+
+//        LinphoneManager.startOutgoingCall(request.destinationNumber, request.metadata["phone_id"])
+        val startCall = HitApiManager.hitCallApi(
+          CallApiRequest(
+            number = request.destinationNumber,
+            telephoneId = request.metadata["phone_id"].orEmpty(),
+            customerId = "2",
+            username = request.credentials.username,
+            customerName = uiState.value.destinationName.orEmpty()
+          )
+        )
+        startCall.onFailure { throwable ->
+          throw throwable
+        }
       } catch (throwable: Throwable) {
         Logger.e("Unable to start SIP call", throwable)
-        CallSessionManager.update(
+        if (CallSessionManager.registerState.value != RegisterState.Ok) {
+          CallSessionManager.updateRegisterState(
+            RegisterState.Failed,
+            throwable.message ?: "Registration failed"
+          )
+        }
+        CallSessionManager.updateCallState(
           CallState.Failed,
           throwable.message ?: "Failed to start SIP call"
         )
@@ -110,7 +146,6 @@ internal class CallViewModel(
 
   fun beginCall() {
     if (_uiState.value.callState == CallState.Initializing ||
-      _uiState.value.callState == CallState.Registering ||
       _uiState.value.callState == CallState.Dialing
     ) {
       return
@@ -119,7 +154,7 @@ internal class CallViewModel(
   }
 
   fun setFatalError(message: String) {
-    CallSessionManager.update(CallState.Failed, message)
+    CallSessionManager.updateCallState(CallState.Failed, message)
     _uiState.update { current -> current.copy(fatalError = message) }
   }
 

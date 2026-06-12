@@ -3,6 +3,7 @@ package com.neo.lib_call.core
 import android.content.Context
 import com.neo.lib_call.model.CallAudioState
 import com.neo.lib_call.model.CallState
+import com.neo.lib_call.model.RegisterState
 import com.neo.lib_call.model.SipCredentials
 import com.neo.lib_call.model.SpeakerOut
 import com.neo.lib_call.util.Logger
@@ -14,8 +15,10 @@ import org.linphone.core.Core
 import org.linphone.core.CoreListenerStub
 import org.linphone.core.Factory
 import org.linphone.core.MediaEncryption
+import org.linphone.core.ProxyConfig
 import org.linphone.core.RegistrationState
 import org.linphone.core.TransportType
+import org.linphone.core.VersionUpdateCheckResult
 
 internal object LinphoneManager {
   private var initialized = false
@@ -34,26 +37,55 @@ internal object LinphoneManager {
       message: String,
     ) {
       when (state) {
+        RegistrationState.None -> {
+          CallSessionManager.updateRegisterState(
+            RegisterState.None,
+            message.ifBlank { "Not registered" },
+          )
+        }
+
         RegistrationState.Progress -> {
-          CallSessionManager.update(
-            CallState.Registering,
+          CallSessionManager.updateRegisterState(
+            RegisterState.Progress,
             message.ifBlank { "Registering SIP account" },
           )
         }
 
         RegistrationState.Ok -> {
-          CallSessionManager.update(CallState.Registered, message.ifBlank { "Registered" })
+          CallSessionManager.updateRegisterState(RegisterState.Ok, message.ifBlank { "Registered" })
+        }
+
+        RegistrationState.Cleared -> {
+          CallSessionManager.updateRegisterState(
+            RegisterState.Cleared,
+            message.ifBlank { "Registration cleared" },
+          )
         }
 
         RegistrationState.Failed -> {
-          CallSessionManager.update(
-            CallState.RegistrationFailed,
+          CallSessionManager.updateRegisterState(
+            RegisterState.Failed,
             message.ifBlank { "Registration failed" },
           )
         }
 
-        else -> Unit
+        RegistrationState.Refreshing -> {
+          CallSessionManager.updateRegisterState(
+            RegisterState.Refreshing,
+            message.ifBlank { "Refreshing registration" },
+          )
+        }
       }
+    }
+
+    override fun onRegistrationStateChanged(
+      core: Core,
+      proxyConfig: ProxyConfig,
+      state: RegistrationState?,
+      message: String
+    ) {
+      super.onRegistrationStateChanged(core, proxyConfig, state, message)
+
     }
 
     override fun onCallStateChanged(core: Core, call: Call, state: Call.State, message: String) {
@@ -64,7 +96,7 @@ internal object LinphoneManager {
         Call.State.OutgoingInit -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
-          CallSessionManager.update(CallState.Dialing, message.ifBlank { "Dialing" })
+          CallSessionManager.updateCallState(CallState.Dialing, message.ifBlank { "Dialing" })
         }
 
         Call.State.OutgoingProgress,
@@ -73,21 +105,31 @@ internal object LinphoneManager {
         -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
-          CallSessionManager.update(CallState.Ringing, message.ifBlank { "Ringing" })
+          CallSessionManager.updateCallState(CallState.Ringing, message.ifBlank { "Ringing" })
         }
 
         Call.State.Connected, Call.State.StreamsRunning -> {
           audioFocusManager?.requestCallFocus()
-          CallSessionManager.update(CallState.Connected, message.ifBlank { "Connected" })
+          CallSessionManager.updateCallState(CallState.Connected, message.ifBlank { "Connected" })
         }
 
         Call.State.End, Call.State.Error, Call.State.Released -> {
           val endedState = if (state == Call.State.Error) CallState.Failed else CallState.Ended
-          CallSessionManager.update(endedState, message.ifBlank { endedState.name })
+          CallSessionManager.updateCallState(endedState, message.ifBlank { endedState.name })
           if (state == Call.State.End || state == Call.State.Error || state == Call.State.Released) {
             activeCall = null
           }
           audioFocusManager?.releaseFocus()
+        }
+
+        Call.State.IncomingReceived -> {
+          activeCall = call
+          val params = core.createCallParams(call)
+          if (params == null){
+            activeCall?.accept()
+          } else {
+            activeCall?.acceptWithParams(params)
+          }
         }
 
         else -> Unit
@@ -95,6 +137,7 @@ internal object LinphoneManager {
 
       refreshAudioState()
     }
+
   }
 
   fun initialize(context: Context, isDebug : Boolean) {
@@ -129,13 +172,13 @@ internal object LinphoneManager {
     require(credentials.domain.isNotBlank()) { "domain is required" }
 
     if (activeCredentials == credentials && activeAccount?.state == RegistrationState.Ok) {
-      CallSessionManager.update(CallState.Registered, "Registered")
+      CallSessionManager.updateRegisterState(RegisterState.Ok, "Registered")
       refreshAudioState()
       return
     }
 
     val linphoneCore = requireNotNull(core) { "Linphone core is missing." }
-    CallSessionManager.update(CallState.Registering, "Registering SIP account")
+    CallSessionManager.updateRegisterState(RegisterState.Progress, "Registering SIP account")
 
     val normalizedDomain = credentials.domain
     val identity = requireNotNull(
@@ -183,10 +226,10 @@ internal object LinphoneManager {
       "Linphone account is not registered. Call registerAccount(...) first."
     }
 
-    CallSessionManager.update(CallState.Dialing, "Dialing $destinationNumber")
+    CallSessionManager.updateCallState(CallState.Dialing, "Dialing $destinationNumber")
     val focusGranted = audioFocusManager?.requestRingingFocus() == true
     if (!focusGranted) {
-      CallSessionManager.update(CallState.Failed, "Audio focus was not granted")
+      CallSessionManager.updateCallState(CallState.Failed, "Audio focus was not granted")
       throw IllegalStateException("Audio focus was not granted")
     }
 
@@ -229,7 +272,7 @@ internal object LinphoneManager {
     linphoneCore.terminateAllCalls()
     activeCall = null
     audioFocusManager?.releaseFocus()
-    CallSessionManager.update(CallState.Ended, "Call ended")
+    CallSessionManager.updateCallState(CallState.Ended, "Call ended")
     refreshAudioState()
   }
 
