@@ -12,6 +12,8 @@ object CallSdk {
   @Volatile
   private var initialized = false
 
+  const val IS_CALL_CONNECT = "IS_CALL_CONNECT"
+
   fun init(context: Context, isDebug: Boolean) {
     val weakPreference: WeakReference<Context> = WeakReference(context.applicationContext)
     CallSdkInitializer.initialize(weakPreference, isDebug)
@@ -54,5 +56,42 @@ object CallSdk {
       }
     }
     context.startActivity(intent)
+  }
+
+  fun makeCallIntent(
+    context: Context,
+    destinationNumber: String,
+    destinationName: String? = null,
+    contactImage: String? = null,
+    metadata: Map<String, String> = emptyMap(),
+    username: String,
+    password: String,
+    domain: String,
+  ) : Intent {
+    check(initialized) {
+      "CallSdk has not been initialized. Call CallSdk.init(...) before makeCall(...)."
+    }
+    require(destinationNumber.isNotBlank()) { "destinationNumber is required" }
+    require(username.isNotBlank()) { "username is required" }
+    require(password.isNotBlank()) { "password is required" }
+    require(domain.isNotBlank()) { "domain is required" }
+
+    val request = CallRequest(
+      destinationNumber = destinationNumber,
+      destinationName = destinationName,
+      contactImage = contactImage,
+      metadata = metadata,
+      credentials = SipCredentials(
+        username = username,
+        password = password,
+        domain = domain,
+      ),
+    )
+
+    return CallActivity.createIntent(context, request).apply {
+      if (context !is android.app.Activity) {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+    }
   }
 }

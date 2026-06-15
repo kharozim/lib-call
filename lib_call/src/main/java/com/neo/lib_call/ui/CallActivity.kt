@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.neo.lib_call.api.CallSdk
 import com.neo.lib_call.core.TimerManager
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.CallState
@@ -47,6 +48,8 @@ internal class CallActivity : ComponentActivity() {
   private val viewModel: CallViewModel by viewModels {
     CallViewModel.Factory(parseRequest(intent), TimerManager())
   }
+
+  private var callIsConnected = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -94,6 +97,14 @@ internal class CallActivity : ComponentActivity() {
         }
       }
 
+      when (state.callState) {
+        CallState.Connected -> {
+          callIsConnected = true
+        }
+
+        else -> Unit
+      }
+
       if (showLoading) {
         Loading(loadingMessage) { }
       }
@@ -112,6 +123,10 @@ internal class CallActivity : ComponentActivity() {
           state = state,
           onEndCallClick = {
             viewModel.endCall()
+            val data = Intent().apply {
+              putExtra(CallSdk.IS_CALL_CONNECT, callIsConnected)
+            }
+            setResult(RESULT_OK, data)
             finish()
           },
           isMicMuted = state.isMicMuted,
