@@ -51,7 +51,7 @@ afterEvaluate {
         from(components["release"])
         groupId = "com.neo"
         artifactId = "lib_call"
-        version = "0.9.4"
+        version = "0.9.5"
       }
     }
   }
@@ -80,7 +80,9 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   implementation(libs.androidx.material.icons.extended)
   implementation(libs.okhttp)
-  implementation(libs.okhttp.logging.interceptor)
+  implementation(libs.okhttp.logging.interceptor){
+    exclude(group = "org.jspecify", module = "jspecify")
+  }
   implementation(libs.converter.gson)
 
 }
