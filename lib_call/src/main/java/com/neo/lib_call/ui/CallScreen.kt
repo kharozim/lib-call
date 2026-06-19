@@ -93,7 +93,8 @@ internal fun CallScreen(
   Scaffold(
     modifier = Modifier
       .fillMaxSize()
-      .navigationBarsPadding()
+      .navigationBarsPadding(),
+    containerColor = Color.White
   ) { padding ->
     Box {
 //      MultiLayerGradientBackground()
@@ -194,7 +195,7 @@ internal fun CallScreen(
             backgroundColor = if (speakerOutput == SpeakerOut.LoadSpeaker) Colors.Orange500 else
               Colors.Orange10,
             iconTint = if (speakerOutput == SpeakerOut.LoadSpeaker) Color.White else
-              Color(0xFF17666A),
+              Colors.Orange500,
             enabled = state.callState !in listOf(
               CallState.Ended,
               CallState.Failed

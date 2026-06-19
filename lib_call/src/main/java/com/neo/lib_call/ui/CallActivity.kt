@@ -13,7 +13,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neo.lib_call.api.CallSdk
@@ -54,7 +57,6 @@ internal class CallActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
-
     setContent {
       val state by viewModel.uiState.collectAsStateWithLifecycle()
       val showLoading = state.callState in listOf(CallState.Initializing) ||
@@ -207,12 +209,19 @@ internal class CallActivity : ComponentActivity() {
 
 @Composable
 private fun ErrorDialog(message: String, onDismiss: () -> Unit) {
-  Dialog(onDismissRequest = onDismiss) {
-    Text(
-      message, Modifier
-        .background(Color.White, RoundedCornerShape(12.dp))
-        .padding(vertical = 12.dp, horizontal = 18.dp)
-    )
+  Dialog(
+    onDismissRequest = onDismiss,
+    properties = DialogProperties(
+      usePlatformDefaultWidth = false
+    ),
+  ) {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(Color.DarkGray)) {
+      Text(
+        message, Modifier
+          .background(Color.White, RoundedCornerShape(12.dp))
+          .padding(vertical = 12.dp, horizontal = 18.dp)
+      )
+    }
   }
 }
 

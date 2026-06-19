@@ -3,17 +3,22 @@ package com.neo.lib_call.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
 import com.neo.lib_call.core.CallApiRequest
 import com.neo.lib_call.core.CallSessionManager
+import com.neo.lib_call.core.CallWebSocket
 import com.neo.lib_call.core.HitApiManager
 import com.neo.lib_call.core.LinphoneManager
 import com.neo.lib_call.core.RegisterUseCase
 import com.neo.lib_call.core.TimerManager
+import com.neo.lib_call.core.WsRequest
+import com.neo.lib_call.core.WsResponse
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.CallState
 import com.neo.lib_call.model.RegisterState
 import com.neo.lib_call.model.SpeakerOut
 import com.neo.lib_call.util.Logger
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,11 +55,71 @@ internal class CallViewModel(
     )
   )
   val uiState: StateFlow<CallUiState> = _uiState.asStateFlow()
+  private var callId: String? = null
 
   init {
+    initWebSocket()
     observeCallSession()
     observeTimerSession()
   }
+
+  private fun initWebSocket() {
+    CallWebSocket.connectWebSocket(
+      url = "wss://api-dial.neokarya.co.id",
+      token = "",
+      onOpen = {
+        CallWebSocket.sendMessage(
+          Gson().toJson(
+            WsRequest(
+              type = "REGISTER_CALL",
+              username = request.credentials.username,
+              domain = request.credentials.domain,
+              agentExtention = request.credentials.username
+            )
+          )
+        )
+      },
+      onMessage = {
+        try {
+          val response = Gson().fromJson(it, WsResponse::class.java)
+          response?.let { data ->
+            if (callId != null && data.callId == callId) {
+              when (data.event) {
+                "RINGING" -> {
+                  if (data.purpose == "customer") {
+                    CallSessionManager.updateCallState(
+                      CallState.Ringing,
+                      "Ringing.."
+                    )
+                  }
+                }
+
+                "ANSWERED" -> {
+                  if (data.purpose == "customer") {
+                    CallSessionManager.updateCallState(
+                      CallState.Connected,
+                      CallState.Connected.name
+                    )
+                  }
+                }
+
+                "FAILED" -> {
+                  CallSessionManager.updateCallState(CallState.Ended, CallState.Ended.name)
+                }
+              }
+            }
+          }
+        } catch (e: Exception) {
+
+        }
+      },
+      onFailure = {
+        CallSessionManager.updateCallState(CallState.Failed, "Failed connect socket")
+      },
+      onClosed = {}
+    )
+  }
+
 
   private fun observeTimerSession() {
     viewModelScope.launch {
@@ -76,6 +141,25 @@ internal class CallViewModel(
         }
       }
     }
+    viewModelScope.launch {
+//      CallWebSocket.callState.collect { wsState ->
+//        val callSession = CallSessionManager.callState.value
+//        val isRingging = wsState == CallState.Ringing && callSession == CallState.Connected
+//        val isConnected = wsState == CallState.Connected && callSession == CallState.Connected
+//
+//        if (isRingging) {
+//          _uiState.update { current -> current.copy(callState = CallState.Connected) }
+//          return@collect
+//        }
+//
+//        if (isConnected) {
+//          _uiState.update { current -> current.copy(callState = CallState.Connected) }
+//          timerManager.startTimer()
+//          return@collect
+//        }
+//      }
+    }
+
     viewModelScope.launch {
       CallSessionManager.callStatusMessage.collect { message ->
         _uiState.update { current -> current.copy(callStateMessage = message) }
@@ -110,20 +194,25 @@ internal class CallViewModel(
         CallSessionManager.updateCallState(CallState.Initializing, "Preparing call")
         CallSessionManager.updateRegisterState(RegisterState.Progress, "Registering SIP account")
         registerUseCase.register(request.credentials)
-        CallSessionManager.updateCallState(CallState.Dialing, "Calling")
+        CallSessionManager.updateCallState(CallState.Dialing, "Dialing")
 
 //        LinphoneManager.startOutgoingCall(request.destinationNumber, request.metadata["phone_id"])
+
+        delay(1000L)
         val startCall = HitApiManager.hitCallApi(
           CallApiRequest(
             number = request.destinationNumber,
             telephoneId = request.metadata["phone_id"].orEmpty(),
-            customerId = "2",
+            customerId = request.metadata["customer_id"].orEmpty(),
             username = request.credentials.username,
             customerName = uiState.value.destinationName.orEmpty()
           )
         )
         startCall.onFailure { throwable ->
           throw throwable
+        }
+        startCall.onSuccess {
+          callId = it.callId
         }
       } catch (throwable: Throwable) {
         Logger.e("Unable to start SIP call", throwable)
@@ -159,6 +248,14 @@ internal class CallViewModel(
   }
 
   fun endCall() {
+    CallWebSocket.sendMessage(
+      """
+      {
+      "type" : "HANGUP",
+      "agentExtension" : ${request.credentials.username}
+      }
+    """.trimIndent()
+    )
     LinphoneManager.endCall()
   }
 
@@ -192,6 +289,7 @@ internal class CallViewModel(
   override fun onCleared() {
     super.onCleared()
     CallSessionManager.reset()
+    CallWebSocket.closeWebSocketConnection()
   }
 
   class Factory(

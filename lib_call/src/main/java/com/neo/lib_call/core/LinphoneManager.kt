@@ -82,7 +82,7 @@ internal object LinphoneManager {
       core: Core,
       proxyConfig: ProxyConfig,
       state: RegistrationState?,
-      message: String
+      message: String,
     ) {
       super.onRegistrationStateChanged(core, proxyConfig, state, message)
 
@@ -96,21 +96,21 @@ internal object LinphoneManager {
         Call.State.OutgoingInit -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
-          CallSessionManager.updateCallState(CallState.Dialing, message.ifBlank { "Dialing" })
+//          CallSessionManager.updateCallState(CallState.Dialing, message.ifBlank { "Dialing" })
         }
 
         Call.State.OutgoingProgress,
         Call.State.OutgoingRinging,
         Call.State.OutgoingEarlyMedia,
-        -> {
+          -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
-          CallSessionManager.updateCallState(CallState.Ringing, message.ifBlank { "Ringing" })
+//          CallSessionManager.updateCallState(CallState.Ringing, message.ifBlank { "Ringing" })
         }
 
         Call.State.Connected, Call.State.StreamsRunning -> {
           audioFocusManager?.requestCallFocus()
-          CallSessionManager.updateCallState(CallState.Connected, message.ifBlank { "Connected" })
+//          CallSessionManager.updateCallState(CallState.Connected, message.ifBlank { "Connected" })
         }
 
         Call.State.End, Call.State.Error, Call.State.Released -> {
@@ -125,7 +125,7 @@ internal object LinphoneManager {
         Call.State.IncomingReceived -> {
           activeCall = call
           val params = core.createCallParams(call)
-          if (params == null){
+          if (params == null) {
             activeCall?.accept()
           } else {
             activeCall?.acceptWithParams(params)
@@ -140,7 +140,7 @@ internal object LinphoneManager {
 
   }
 
-  fun initialize(context: Context, isDebug : Boolean) {
+  fun initialize(context: Context, isDebug: Boolean) {
     if (initialized) return
 
     val factory = Factory.instance()
@@ -272,7 +272,6 @@ internal object LinphoneManager {
     linphoneCore.terminateAllCalls()
     activeCall = null
     audioFocusManager?.releaseFocus()
-    CallSessionManager.updateCallState(CallState.Ended, "Call ended")
     refreshAudioState()
   }
 
@@ -371,7 +370,7 @@ internal object LinphoneManager {
     }
 
     if (activeAccount?.state != RegistrationState.Ok) {
-      throw IllegalStateException("Timed out while waiting for SIP registration.")
+      throw IllegalStateException("Timed out while waiting for registration.")
     }
   }
 
@@ -380,7 +379,7 @@ internal object LinphoneManager {
       when (activeCall?.state) {
         Call.State.Connected,
         Call.State.StreamsRunning,
-        -> return
+          -> return
 
         Call.State.Error -> throw IllegalStateException("Call failed to connect.")
         else -> delay(100)
@@ -454,11 +453,11 @@ internal object LinphoneManager {
       AudioDevice.Type.Speaker -> SpeakerOut.LoadSpeaker
       AudioDevice.Type.Bluetooth,
       AudioDevice.Type.BluetoothA2DP,
-      -> SpeakerOut.Bluethooth
+        -> SpeakerOut.Bluethooth
 
       AudioDevice.Type.Headset,
       AudioDevice.Type.Headphones,
-      -> SpeakerOut.Headphone
+        -> SpeakerOut.Headphone
 
       else -> null
     }

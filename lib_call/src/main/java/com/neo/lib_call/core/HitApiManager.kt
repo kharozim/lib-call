@@ -1,12 +1,16 @@
 package com.neo.lib_call.core
 
-import com.neo.lib_call.util.Logger
+import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.logging.HttpLoggingInterceptor
+import java.util.concurrent.TimeUnit
 
 /**
  * Created by Kharozim
@@ -15,73 +19,71 @@ import java.net.URL
  * All Rights Reserved
  */
 internal data class CallApiRequest(
+  @SerializedName("number")
   val number: String,
+  @SerializedName("telephone_id")
   val telephoneId: String,
+  @SerializedName("customer_id")
   val customerId: String,
+  @SerializedName("agent_extension")
   val username: String,
+  @SerializedName("customer_name")
   val customerName: String,
+)
+
+internal data class BaseResponse<T>(
+  val success: Boolean? = null,
+  val message: String? = null,
+  val data: T? = null,
+)
+
+internal data class CallResponse(
+  val callId: String? = null,
+  val finalNumber: String? = null,
 )
 
 internal object HitApiManager {
 
+  private val client = OkHttpClient.Builder()
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(15, TimeUnit.SECONDS)
+    .writeTimeout(15, TimeUnit.SECONDS)
+    .addInterceptor(HttpLoggingInterceptor().apply { setLevel(HttpLoggingInterceptor.Level.BODY) })
+    .build()
+
   suspend fun hitCallApi(
     request: CallApiRequest,
-  ): Result<String> = withContext(Dispatchers.IO) {
-    var connection: HttpURLConnection? = null
-
+  ): Result<CallResponse> = withContext(Dispatchers.IO) {
     try {
-      val apiUrl = "http://149.129.218.243:3456/ami/api/v1/call"
-      val url = URL(apiUrl)
+      val jsonBody = Gson().toJson(request)
+      val body = jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType())
 
-      val jsonBody = """
-            {
-                "number": "${request.number}",
-                "telephone_id": "${request.telephoneId}",
-                "customer_id": "${request.customerId}",
-                "agent_extension": "${request.username}",
-                "customer_name": "${request.customerName}"
-            }
-        """.trimIndent()
-      Logger.e("try call : $jsonBody")
+      val httpRequest = Request.Builder()
+        .url("https://api-dial.neokarya.co.id/ami/api/v1/call")
+        .post(body)
+        .addHeader("Accept", "application/json")
+        .build()
 
-      connection = url.openConnection() as HttpURLConnection
-      connection.requestMethod = "POST"
-      connection.connectTimeout = 15_000
-      connection.readTimeout = 15_000
-      connection.doOutput = true
-      connection.doInput = true
+      client.newCall(httpRequest).execute().use { response ->
+        val responseBody = response.body?.string().orEmpty()
 
-      connection.setRequestProperty("Content-Type", "application/json")
-      connection.setRequestProperty("Accept", "application/json")
-
-      OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { writer ->
-        writer.write(jsonBody)
-        writer.flush()
-      }
-
-      val responseCode = connection.responseCode
-
-      val responseBody = if (responseCode in 200..299) {
-        connection.inputStream.bufferedReader().use(BufferedReader::readText)
-      } else {
-        connection.errorStream?.bufferedReader()?.use(BufferedReader::readText)
-          ?: "HTTP Error $responseCode"
-      }
-
-      if (responseCode in 200..299) {
-        Logger.e("call : success $responseBody")
-        Result.success(responseBody)
-      } else {
-        Logger.e("failure call : api error $responseBody")
-        Result.failure(Exception("API Error $responseCode: $responseBody"))
+        if (response.isSuccessful) {
+          try {
+            val type = object : TypeToken<BaseResponse<CallResponse>>() {}.type
+            val responseData: BaseResponse<CallResponse> = Gson().fromJson(responseBody, type)
+            Result.success(responseData.data ?: CallResponse())
+          } catch (e: Exception) {
+            Result.failure(e)
+          }
+        } else {
+          Result.failure(
+            Exception("API Error ${response.code}: $responseBody")
+          )
+        }
       }
 
     } catch (e: Exception) {
-      Logger.e("failure call :${e.localizedMessage}")
       Result.failure(e)
-    } finally {
-      Logger.e("call : disconnect")
-      connection?.disconnect()
     }
   }
 }
