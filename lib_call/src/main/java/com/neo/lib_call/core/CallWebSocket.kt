@@ -35,6 +35,7 @@ internal data class WsResponse(
   val taskId: String? = null,
   val purpose: String? = null,
   val reason: String? = null,
+  val billsec: String? = null,
 )
 
 object CallWebSocket {

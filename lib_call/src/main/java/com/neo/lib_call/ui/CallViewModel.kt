@@ -83,7 +83,7 @@ internal class CallViewModel(
         try {
           val response = Gson().fromJson(it, WsResponse::class.java)
           response?.let { data ->
-            if (data.agentExtension == request.credentials.username) {
+            if (data.agentExtension == request.credentials.username && data.billsec.isNullOrEmpty()) {
               when (data.event) {
                 "RINGING" -> {
                   if (data.purpose == "customer") {
