@@ -202,10 +202,9 @@ internal class CallViewModel(
         val startCall = HitApiManager.hitCallApi(
           CallApiRequest(
             number = request.destinationNumber,
-            telephoneId = request.metadata["phone_id"].orEmpty(),
-            customerId = request.metadata["customer_id"].orEmpty(),
-            username = request.credentials.username,
-            customerName = uiState.value.destinationName.orEmpty()
+            agenExtention = request.credentials.username,
+            device = "mobile",
+            param = request.metadata
           )
         )
         startCall.onFailure { throwable ->

@@ -82,7 +82,9 @@ fun CallScreen() {
           password = pass,
           domain = domain,
           metadata = mapOf(
-            "phone_id" to "123123333"
+            "telephone_id" to "telID",
+            "customer_id" to "cusID",
+            "customer_name" to name,
           )
         )
       }) { Text("Call") }

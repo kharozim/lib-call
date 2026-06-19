@@ -21,14 +21,12 @@ import java.util.concurrent.TimeUnit
 internal data class CallApiRequest(
   @SerializedName("number")
   val number: String,
-  @SerializedName("telephone_id")
-  val telephoneId: String,
-  @SerializedName("customer_id")
-  val customerId: String,
+  @SerializedName("device")
+  val device: String,
   @SerializedName("agent_extension")
-  val username: String,
-  @SerializedName("customer_name")
-  val customerName: String,
+  val agenExtention: String,
+  @SerializedName("param")
+  val param: Map<String, String>,
 )
 
 internal data class BaseResponse<T>(
