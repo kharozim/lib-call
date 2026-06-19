@@ -83,7 +83,7 @@ internal class CallViewModel(
         try {
           val response = Gson().fromJson(it, WsResponse::class.java)
           response?.let { data ->
-            if (callId != null && data.callId == callId) {
+            if (data.agentExtension == request.credentials.username) {
               when (data.event) {
                 "RINGING" -> {
                   if (data.purpose == "customer") {
@@ -105,6 +105,15 @@ internal class CallViewModel(
 
                 "FAILED" -> {
                   CallSessionManager.updateCallState(CallState.Ended, CallState.Ended.name)
+                }
+                "CALL_FAILED" -> {
+                  CallSessionManager.updateCallState(CallState.Failed, data.reason.orEmpty())
+                }
+                "NO_ANSWER" -> {
+                  CallSessionManager.updateCallState(CallState.Failed, data.reason.orEmpty())
+                }
+                "BUSY" -> {
+                  CallSessionManager.updateCallState(CallState.Ended, "Busy")
                 }
               }
             }

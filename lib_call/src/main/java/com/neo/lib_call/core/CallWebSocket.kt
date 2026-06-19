@@ -27,12 +27,14 @@ internal data class WsRequest(
 )
 
 internal data class WsResponse(
+  val agentExtension: String,
   val event: String? = null,
   val callId: String? = null,
   val duration: String? = null,
   val telephoneId: String? = null,
   val taskId: String? = null,
   val purpose: String? = null,
+  val reason: String? = null,
 )
 
 object CallWebSocket {

@@ -62,7 +62,7 @@ internal object HitApiManager {
         .build()
 
       client.newCall(httpRequest).execute().use { response ->
-        val responseBody = response.body?.string().orEmpty()
+        val responseBody = response.body.string()
 
         if (response.isSuccessful) {
           try {
