@@ -13,6 +13,7 @@ object CallSdk {
   private var initialized = false
 
   const val IS_CALL_CONNECT = "IS_CALL_CONNECT"
+  const val CALL_DETAIL_RESULT = "CALL_DETAIL_RESULT"
 
   fun init(context: Context, isDebug: Boolean) {
     val weakPreference: WeakReference<Context> = WeakReference(context.applicationContext)

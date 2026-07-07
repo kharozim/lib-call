@@ -1,5 +1,6 @@
 package com.neo.lib_call.ui
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -39,6 +40,7 @@ internal data class CallUiState(
   val availableSpeakerOutputs: List<SpeakerOut> = emptyList(),
   val fatalError: String? = null,
   val timeCall: String = "",
+  val callDetailResult: String = "",
 )
 
 internal class CallViewModel(
@@ -83,7 +85,7 @@ internal class CallViewModel(
         try {
           val response = Gson().fromJson(it, WsResponse::class.java)
           response?.let { data ->
-            if (data.agentExtension == request.credentials.username && data.billsec.isNullOrEmpty()) {
+            if (data.agentExtension == request.credentials.username && data.billsec == null) {
               when (data.event) {
                 "RINGING" -> {
                   if (data.purpose == "customer") {
@@ -106,16 +108,27 @@ internal class CallViewModel(
                 "FAILED" -> {
                   CallSessionManager.updateCallState(CallState.Ended, CallState.Ended.name)
                 }
+
                 "CALL_FAILED" -> {
                   CallSessionManager.updateCallState(CallState.Failed, data.reason.orEmpty())
                 }
+
                 "NO_ANSWER" -> {
                   CallSessionManager.updateCallState(CallState.Failed, data.reason.orEmpty())
                 }
+
                 "BUSY" -> {
                   CallSessionManager.updateCallState(CallState.Ended, "Busy")
                 }
               }
+            }
+
+            if (data.callId != null
+              && data.purpose == "agent"
+              && data.agentExtension == request.credentials.username
+              && data.billsec != null
+            ) {
+              _uiState.update { state -> state.copy(callDetailResult = it) }
             }
           }
         } catch (e: Exception) {

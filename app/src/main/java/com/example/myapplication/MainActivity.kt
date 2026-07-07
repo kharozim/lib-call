@@ -1,9 +1,12 @@
 package com.example.myapplication
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,10 +45,19 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun CallScreen() {
+  val callLauncher =
+    rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) {
+      val callIsConnected = it.data?.extras?.getBoolean(CallSdk.IS_CALL_CONNECT) ?: false
+      val callResult = it.data?.extras?.getString(CallSdk.CALL_DETAIL_RESULT)
+
+      Log.d("TAG", "cekCallScreen callIsConnected: $callIsConnected")
+      Log.d("TAG", "cekCallScreen callResult: $callResult")
+    }
+
   Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
     val context = LocalContext.current
-//    val destination by remember { mutableStateOf("085600431521") }
     val destination by remember { mutableStateOf("085600431521") }
+//    val destination by remember { mutableStateOf("085771518294") }
     val name by remember { mutableStateOf("Jack Sparrow") }
     val image by remember { mutableStateOf("https://akcdn.detik.net.id/api/wm/2026/02/05/suraj-chavan-1770282300425_169.png?w=1200") }
     val user by remember { mutableStateOf("1012") }
@@ -73,7 +85,7 @@ fun CallScreen() {
       }
       Spacer(Modifier.size(12.dp))
       Button(onClick = {
-        CallSdk.makeCall(
+        val intent = CallSdk.makeCallIntent(
           context,
           destinationNumber = destination,
           destinationName = name,
@@ -87,6 +99,8 @@ fun CallScreen() {
             "customer_name" to name,
           )
         )
+        callLauncher.launch(intent)
+
       }) { Text("Call") }
     }
   }

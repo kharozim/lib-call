@@ -127,6 +127,9 @@ internal class CallActivity : ComponentActivity() {
             viewModel.endCall()
             val data = Intent().apply {
               putExtra(CallSdk.IS_CALL_CONNECT, callIsConnected)
+              if (state.callDetailResult.isNotBlank()) {
+                putExtra(CallSdk.CALL_DETAIL_RESULT, state.callDetailResult)
+              }
             }
             setResult(RESULT_OK, data)
             finish()
@@ -215,7 +218,12 @@ private fun ErrorDialog(message: String, onDismiss: () -> Unit) {
       usePlatformDefaultWidth = false
     ),
   ) {
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize().background(Color.DarkGray)) {
+    Box(
+      contentAlignment = Alignment.Center,
+      modifier = Modifier
+        .fillMaxSize()
+        .background(Color.DarkGray)
+    ) {
       Text(
         message, Modifier
           .background(Color.White, RoundedCornerShape(12.dp))
