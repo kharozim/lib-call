@@ -46,9 +46,12 @@ internal object CallSessionManager {
     )
   }
 
-  fun reset() {
+  fun resetCallSession() {
     updateCallState(CallState.Idle, "Idle")
-    updateRegisterState(RegisterState.None, "Not registered")
     _audioState.value = CallAudioState()
+  }
+
+  fun resetRegistration() {
+    updateRegisterState(RegisterState.None, "Not registered")
   }
 }
