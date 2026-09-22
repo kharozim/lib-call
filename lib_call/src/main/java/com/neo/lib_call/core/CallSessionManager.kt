@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 internal object CallSessionManager {
+  @Volatile
+  var isIncoming: Boolean = true
+
   private val _callState = MutableStateFlow(CallState.Idle)
   private val _callStatusMessage = MutableStateFlow("Idle")
   private val _registerState = MutableStateFlow(RegisterState.None)
@@ -46,9 +49,12 @@ internal object CallSessionManager {
     )
   }
 
-  fun reset() {
+  fun resetCallSession() {
     updateCallState(CallState.Idle, "Idle")
-    updateRegisterState(RegisterState.None, "Not registered")
     _audioState.value = CallAudioState()
+  }
+
+  fun resetRegistration() {
+    updateRegisterState(RegisterState.None, "Not registered")
   }
 }

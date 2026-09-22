@@ -25,9 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -41,15 +39,17 @@ import com.neo.lib_call.api.CallSdk
 import com.neo.lib_call.core.TimerManager
 import com.neo.lib_call.model.CallRequest
 import com.neo.lib_call.model.CallState
-import com.neo.lib_call.model.RegisterState
-import com.neo.lib_call.model.SipCredentials
 import com.neo.lib_call.util.IntentKeys
 import com.neo.lib_call.util.MetadataConverter
 import java.io.Serializable
 
 internal class CallActivity : ComponentActivity() {
   private val viewModel: CallViewModel by viewModels {
-    CallViewModel.Factory(parseRequest(intent), TimerManager())
+    CallViewModel.Factory(
+      parseRequest(intent),
+      TimerManager(),
+      intent.getBooleanExtra(IntentKeys.EXTRA_INCOMING_CALL, false),
+    )
   }
 
   private var callIsConnected = false
@@ -59,16 +59,14 @@ internal class CallActivity : ComponentActivity() {
     enableEdgeToEdge()
     setContent {
       val state by viewModel.uiState.collectAsStateWithLifecycle()
-      val showLoading = state.callState in listOf(CallState.Initializing) ||
-        state.registerState in listOf(RegisterState.Progress, RegisterState.Refreshing)
-      var loadingMessage by remember { mutableStateOf("") }
+      val showLoading = state.callState == CallState.Initializing
       val permissions = remember { requiredPermissions() }
       val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
       ) { grantResults ->
         val allGranted = permissions.all { grantResults[it] == true }
         if (allGranted) {
-          viewModel.beginCall()
+          if (viewModel.isIncomingCall) viewModel.answerIncomingCall() else viewModel.beginCall()
         } else {
           viewModel.setFatalError("Permission audio tidak lengkap. Aplikasi akan ditutup.")
           finish()
@@ -83,19 +81,9 @@ internal class CallActivity : ComponentActivity() {
           ) == PackageManager.PERMISSION_GRANTED
         }
         if (alreadyGranted) {
-          viewModel.beginCall()
+          if (viewModel.isIncomingCall) viewModel.answerIncomingCall() else viewModel.beginCall()
         } else {
           permissionLauncher.launch(permissions)
-        }
-      }
-
-      LaunchedEffect(state.callState, state.registerState, state.registerStateMessage) {
-        loadingMessage = when (state.registerState) {
-          RegisterState.Progress,
-          RegisterState.Refreshing,
-            -> state.registerStateMessage
-
-          else -> if (state.callState == CallState.Initializing) "Initializing..." else ""
         }
       }
 
@@ -108,7 +96,7 @@ internal class CallActivity : ComponentActivity() {
       }
 
       if (showLoading) {
-        Loading(loadingMessage) { }
+        Loading(state.callStateMessage) { }
       }
 
       if (!state.fatalError.isNullOrEmpty()) {
@@ -152,9 +140,13 @@ internal class CallActivity : ComponentActivity() {
         putExtra(IntentKeys.EXTRA_DESTINATION_NAME, request.destinationName)
         putExtra(IntentKeys.EXTRA_CONTACT_IMAGE, request.contactImage)
         putExtra(IntentKeys.EXTRA_METADATA, MetadataConverter.toHashMap(request.metadata))
-        putExtra(IntentKeys.EXTRA_USERNAME, request.credentials.username)
-        putExtra(IntentKeys.EXTRA_PASSWORD, request.credentials.password)
-        putExtra(IntentKeys.EXTRA_DOMAIN, request.credentials.domain)
+        putExtra(IntentKeys.EXTRA_INCOMING_CALL, false)
+      }
+    }
+
+    fun createIncomingIntent(context: Context, request: CallRequest): Intent {
+      return createIntent(context, request).apply {
+        putExtra(IntentKeys.EXTRA_INCOMING_CALL, true)
       }
     }
 
@@ -162,17 +154,8 @@ internal class CallActivity : ComponentActivity() {
       val destinationNumber =
         requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_DESTINATION_NUMBER)) {
           "Missing destination number for CallActivity."
-        }
+      }
       val destinationName = intent.getStringExtra(IntentKeys.EXTRA_DESTINATION_NAME)
-      val username = requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_USERNAME)) {
-        "Missing SIP username for CallActivity."
-      }
-      val password = requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_PASSWORD)) {
-        "Missing SIP password for CallActivity."
-      }
-      val domain = requireNotNull(intent.getStringExtra(IntentKeys.EXTRA_DOMAIN)) {
-        "Missing SIP domain for CallActivity."
-      }
 
       return CallRequest(
         destinationNumber = destinationNumber,
@@ -183,11 +166,6 @@ internal class CallActivity : ComponentActivity() {
             intent,
             IntentKeys.EXTRA_METADATA
           )
-        ),
-        credentials = SipCredentials(
-          username = username,
-          password = password,
-          domain = domain,
         ),
       )
     }

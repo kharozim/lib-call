@@ -7,9 +7,13 @@ import com.neo.lib_call.model.RegisterState
 import com.neo.lib_call.model.SipCredentials
 import com.neo.lib_call.model.SpeakerOut
 import com.neo.lib_call.util.Logger
+import java.security.MessageDigest
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.linphone.core.Account
 import org.linphone.core.AudioDevice
+import org.linphone.core.AuthInfo
 import org.linphone.core.Call
 import org.linphone.core.Core
 import org.linphone.core.CoreListenerStub
@@ -21,13 +25,24 @@ import org.linphone.core.TransportType
 import org.linphone.core.VersionUpdateCheckResult
 
 internal object LinphoneManager {
+  private const val REGISTRATION_ATTEMPTS = 50
+  private const val REGISTRATION_POLL_DELAY_MS = 100L
+
   private var initialized = false
   private var core: Core? = null
   private var activeCall: Call? = null
-  private var activeCredentials: SipCredentials? = null
+  private var activeCredentialFingerprint: String? = null
+  private var activeSipAccount: RegisteredSipAccount? = null
   private var activeProxyDomain: String? = null
   private var activeAccount: Account? = null
+  private var activeAuthInfo: AuthInfo? = null
   private var audioFocusManager: CallAudioManager? = null
+  private val registrationMutex = Mutex()
+
+  internal data class RegisteredSipAccount(
+    val username: String,
+    val domain: String,
+  )
 
   private val listener = object : CoreListenerStub() {
     override fun onAccountRegistrationStateChanged(
@@ -36,46 +51,58 @@ internal object LinphoneManager {
       state: RegistrationState,
       message: String,
     ) {
+      Logger.d(
+        "Linphone registration callback state=$state " +
+          "message=${message.ifBlank { "<blank>" }} " +
+          "isActiveAccount=${account.nativePointer == activeAccount?.nativePointer}"
+      )
+      if (account.nativePointer != activeAccount?.nativePointer) return
+
       when (state) {
         RegistrationState.None -> {
           CallSessionManager.updateRegisterState(
             RegisterState.None,
-            message.ifBlank { "Not registered" },
+            "Not registered",
           )
         }
 
         RegistrationState.Progress -> {
           CallSessionManager.updateRegisterState(
             RegisterState.Progress,
-            message.ifBlank { "Registering SIP account" },
+            "Registering SIP account",
           )
         }
 
         RegistrationState.Ok -> {
-          CallSessionManager.updateRegisterState(RegisterState.Ok, message.ifBlank { "Registered" })
+          CallSessionManager.updateRegisterState(RegisterState.Ok, "Registered")
         }
 
         RegistrationState.Cleared -> {
           CallSessionManager.updateRegisterState(
             RegisterState.Cleared,
-            message.ifBlank { "Registration cleared" },
+            "Registration cleared",
           )
         }
 
         RegistrationState.Failed -> {
           CallSessionManager.updateRegisterState(
             RegisterState.Failed,
-            message.ifBlank { "Registration failed" },
+            "Registration failed",
           )
         }
 
         RegistrationState.Refreshing -> {
           CallSessionManager.updateRegisterState(
             RegisterState.Refreshing,
-            message.ifBlank { "Refreshing registration" },
+            "Refreshing registration",
           )
         }
       }
+
+      Logger.d(
+        "Registration state mapped linphone=$state " +
+          "sdk=${CallSessionManager.registerState.value}"
+      )
     }
 
     override fun onRegistrationStateChanged(
@@ -96,7 +123,10 @@ internal object LinphoneManager {
         Call.State.OutgoingInit -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
-//          CallSessionManager.updateCallState(CallState.Dialing, message.ifBlank { "Dialing" })
+          CallSessionManager.updateCallState(
+            CallState.Dialing,
+            message.ifBlank { "Dialing" },
+          )
         }
 
         Call.State.OutgoingProgress,
@@ -105,15 +135,22 @@ internal object LinphoneManager {
           -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
-//          CallSessionManager.updateCallState(CallState.Ringing, message.ifBlank { "Ringing" })
+          CallSessionManager.updateCallState(
+            CallState.Ringing,
+            message.ifBlank { "Ringing" },
+          )
         }
 
         Call.State.Connected, Call.State.StreamsRunning -> {
           audioFocusManager?.requestCallFocus()
-//          CallSessionManager.updateCallState(CallState.Connected, message.ifBlank { "Connected" })
+          CallSessionManager.updateCallState(
+            CallState.Connected,
+            message.ifBlank { "Connected" },
+          )
         }
 
         Call.State.End, Call.State.Error, Call.State.Released -> {
+          IncomingCallNotificationManager.dismiss()
           val endedState = if (state == Call.State.Error) CallState.Failed else CallState.Ended
           CallSessionManager.updateCallState(endedState, message.ifBlank { endedState.name })
           if (state == Call.State.End || state == Call.State.Error || state == Call.State.Released) {
@@ -124,17 +161,27 @@ internal object LinphoneManager {
 
         Call.State.IncomingReceived -> {
           activeCall = call
-          val params = core.createCallParams(call)
-          if (params == null) {
-            activeCall?.accept()
+          CallSessionManager.updateCallState(
+            CallState.Ringing,
+            message.ifBlank { "Incoming call" },
+          )
+          val caller = call.remoteAddress?.username.orEmpty()
+          if (!CallSessionManager.isIncoming) {
+            answerIncomingCall()
+            Logger.d("Incoming call auto-accepted for hitCallApi flow caller=$caller")
           } else {
-            activeCall?.acceptWithParams(params)
+            val callerLabel = caller.ifBlank { "Unknown caller" }
+            IncomingCallNotificationManager.show(callerLabel)
+            Logger.d("Incoming call notification shown caller=$callerLabel")
           }
         }
 
         else -> Unit
       }
 
+      Logger.d(
+        "Call state mapped linphone=$state sdk=${CallSessionManager.callState.value}"
+      )
       refreshAudioState()
     }
 
@@ -165,19 +212,26 @@ internal object LinphoneManager {
     Logger.d("Linphone manager initialized")
   }
 
-  suspend fun registerAccount(credentials: SipCredentials) {
+  suspend fun registerAccount(credentials: SipCredentials) = registrationMutex.withLock {
     require(initialized) { "LinphoneManager is not initialized." }
     require(credentials.username.isNotBlank()) { "username is required" }
     require(credentials.password.isNotBlank()) { "password is required" }
     require(credentials.domain.isNotBlank()) { "domain is required" }
 
-    if (activeCredentials == credentials && activeAccount?.state == RegistrationState.Ok) {
+    if (activeCredentialFingerprint == credentials.fingerprint() &&
+      activeAccount?.state == RegistrationState.Ok
+    ) {
       CallSessionManager.updateRegisterState(RegisterState.Ok, "Registered")
       refreshAudioState()
       return
     }
 
     val linphoneCore = requireNotNull(core) { "Linphone core is missing." }
+    check(linphoneCore.callsNb == 0) {
+      "Cannot change SIP account while a call is active."
+    }
+
+    removeActiveAccount(linphoneCore)
     CallSessionManager.updateRegisterState(RegisterState.Progress, "Registering SIP account")
 
     val normalizedDomain = credentials.domain
@@ -194,11 +248,17 @@ internal object LinphoneManager {
       null,
       normalizedDomain
     )
-    linphoneCore.clearAllAuthInfo()
     linphoneCore.addAuthInfo(authInfo)
 
     val accountParams = linphoneCore.createAccountParams()
     accountParams.identityAddress = identity
+
+    val natPolicy = linphoneCore.createNatPolicy()
+    natPolicy.isIceEnabled = false
+    natPolicy.isStunEnabled = false
+    natPolicy.isTurnEnabled = false
+    accountParams.natPolicy = natPolicy
+    Logger.d("Linphone ICE disabled for account registration")
 
     val serverAddress = Factory.instance().createAddress("sip:$normalizedDomain")
     serverAddress?.transport = TransportType.Udp
@@ -206,15 +266,75 @@ internal object LinphoneManager {
     accountParams.isRegisterEnabled = true
 
     val account = linphoneCore.createAccount(accountParams)
+    activeCredentialFingerprint = credentials.fingerprint()
+    activeSipAccount = RegisteredSipAccount(
+      username = credentials.username,
+      domain = normalizedDomain,
+    )
+    activeProxyDomain = normalizedDomain
+    activeAccount = account
+    activeAuthInfo = authInfo
     linphoneCore.addAccount(account)
     linphoneCore.defaultAccount = account
     linphoneCore.refreshRegisters()
 
-    activeCredentials = credentials
-    activeProxyDomain = normalizedDomain
-    activeAccount = account
-    waitForRegistration()
-    refreshAudioState()
+    try {
+      waitForRegistration()
+      refreshAudioState()
+    } catch (throwable: Throwable) {
+      CallSessionManager.updateRegisterState(RegisterState.Failed, "Registration failed")
+      throw throwable
+    }
+  }
+
+  suspend fun unregisterAccount() = registrationMutex.withLock {
+    require(initialized) { "LinphoneManager is not initialized." }
+    val linphoneCore = requireNotNull(core) { "Linphone core is missing." }
+    check(linphoneCore.callsNb == 0) {
+      "Cannot unregister SIP account while a call is active."
+    }
+
+    val account = activeAccount
+    if (account == null) {
+      CallSessionManager.resetRegistration()
+      return
+    }
+
+    val accountParams = account.params.clone()
+    accountParams.isRegisterEnabled = false
+    account.params = accountParams
+    try {
+      waitForUnregistration(account)
+    } finally {
+      removeActiveAccount(linphoneCore)
+      CallSessionManager.resetRegistration()
+    }
+  }
+
+  fun activeSipAccountOrNull(): RegisteredSipAccount? = activeSipAccount
+
+  fun isRegisteredFor(credentials: SipCredentials): Boolean {
+    return activeCredentialFingerprint == credentials.fingerprint() &&
+      activeAccount?.state == RegistrationState.Ok
+  }
+
+  fun hasActiveCall(): Boolean = core?.callsNb?.let { it > 0 } == true
+
+  private fun removeActiveAccount(linphoneCore: Core) {
+    activeAccount?.let(linphoneCore::removeAccount)
+    activeAuthInfo?.let(linphoneCore::removeAuthInfo)
+    activeAccount = null
+    activeAuthInfo = null
+    activeCredentialFingerprint = null
+    activeSipAccount = null
+    activeProxyDomain = null
+  }
+
+  private fun SipCredentials.fingerprint(): String {
+    val source = "$username\u0000$domain\u0000$password"
+    return MessageDigest.getInstance("SHA-256")
+      .digest(source.toByteArray(Charsets.UTF_8))
+      .joinToString(separator = "") { byte -> "%02x".format(byte) }
   }
 
   fun startOutgoingCall(destinationNumber: String, phoneId: String? = null) {
@@ -268,11 +388,37 @@ internal object LinphoneManager {
   fun endCall() {
     if (!initialized) return
 
+    IncomingCallNotificationManager.dismiss()
     val linphoneCore = core ?: return
     linphoneCore.terminateAllCalls()
     activeCall = null
     audioFocusManager?.releaseFocus()
     refreshAudioState()
+  }
+
+  fun answerIncomingCall() {
+    val linphoneCore = requireNotNull(core) { "Linphone core is missing." }
+    val call = requireNotNull(activeCall) { "No incoming call to answer." }
+    applyPreferredAudioRoute(linphoneCore)
+    audioFocusManager?.requestCallFocus()
+
+    val params = linphoneCore.createCallParams(call)
+    if (params == null) {
+      call.accept()
+    } else {
+      call.acceptWithParams(params)
+    }
+    IncomingCallNotificationManager.dismiss()
+    Logger.d("Incoming call answered")
+  }
+
+  fun rejectIncomingCall() {
+    IncomingCallNotificationManager.dismiss()
+    activeCall?.terminate()
+    activeCall = null
+    audioFocusManager?.releaseFocus()
+    CallSessionManager.updateCallState(CallState.Ended, "Incoming call rejected")
+    Logger.d("Incoming call rejected")
   }
 
   fun sendDtmf(value: String): Boolean {
@@ -359,19 +505,33 @@ internal object LinphoneManager {
   }
 
   private suspend fun waitForRegistration() {
-    repeat(50) {
+    repeat(REGISTRATION_ATTEMPTS) {
       val state = activeAccount?.state
 
       if (state == RegistrationState.Ok) return
       if (state == RegistrationState.Failed) {
         throw IllegalStateException("SIP registration failed.")
       }
-      delay(100)
+      delay(REGISTRATION_POLL_DELAY_MS)
     }
 
     if (activeAccount?.state != RegistrationState.Ok) {
       throw IllegalStateException("Timed out while waiting for registration.")
     }
+  }
+
+  private suspend fun waitForUnregistration(account: Account) {
+    repeat(REGISTRATION_ATTEMPTS) {
+      when (account.state) {
+        RegistrationState.Cleared,
+        RegistrationState.None,
+          -> return
+
+        else -> delay(REGISTRATION_POLL_DELAY_MS)
+      }
+    }
+
+    throw IllegalStateException("Timed out while waiting for unregistration.")
   }
 
   private suspend fun waitForCallToConnect() {

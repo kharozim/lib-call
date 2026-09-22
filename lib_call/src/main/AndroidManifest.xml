@@ -4,10 +4,14 @@
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
   <application android:usesCleartextTraffic="true">
     <activity
         android:name="com.neo.lib_call.ui.CallActivity"
+        android:exported="false" />
+    <receiver
+        android:name="com.neo.lib_call.core.IncomingCallActionReceiver"
         android:exported="false" />
   </application>
 
