@@ -45,7 +45,11 @@ import java.io.Serializable
 
 internal class CallActivity : ComponentActivity() {
   private val viewModel: CallViewModel by viewModels {
-    CallViewModel.Factory(parseRequest(intent), TimerManager())
+    CallViewModel.Factory(
+      parseRequest(intent),
+      TimerManager(),
+      intent.getBooleanExtra(IntentKeys.EXTRA_INCOMING_CALL, false),
+    )
   }
 
   private var callIsConnected = false
@@ -62,7 +66,7 @@ internal class CallActivity : ComponentActivity() {
       ) { grantResults ->
         val allGranted = permissions.all { grantResults[it] == true }
         if (allGranted) {
-          viewModel.beginCall()
+          if (viewModel.isIncomingCall) viewModel.answerIncomingCall() else viewModel.beginCall()
         } else {
           viewModel.setFatalError("Permission audio tidak lengkap. Aplikasi akan ditutup.")
           finish()
@@ -77,7 +81,7 @@ internal class CallActivity : ComponentActivity() {
           ) == PackageManager.PERMISSION_GRANTED
         }
         if (alreadyGranted) {
-          viewModel.beginCall()
+          if (viewModel.isIncomingCall) viewModel.answerIncomingCall() else viewModel.beginCall()
         } else {
           permissionLauncher.launch(permissions)
         }
@@ -136,6 +140,13 @@ internal class CallActivity : ComponentActivity() {
         putExtra(IntentKeys.EXTRA_DESTINATION_NAME, request.destinationName)
         putExtra(IntentKeys.EXTRA_CONTACT_IMAGE, request.contactImage)
         putExtra(IntentKeys.EXTRA_METADATA, MetadataConverter.toHashMap(request.metadata))
+        putExtra(IntentKeys.EXTRA_INCOMING_CALL, false)
+      }
+    }
+
+    fun createIncomingIntent(context: Context, request: CallRequest): Intent {
+      return createIntent(context, request).apply {
+        putExtra(IntentKeys.EXTRA_INCOMING_CALL, true)
       }
     }
 

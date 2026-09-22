@@ -51,6 +51,11 @@ internal object LinphoneManager {
       state: RegistrationState,
       message: String,
     ) {
+      Logger.d(
+        "Linphone registration callback state=$state " +
+          "message=${message.ifBlank { "<blank>" }} " +
+          "isActiveAccount=${account.nativePointer == activeAccount?.nativePointer}"
+      )
       if (account.nativePointer != activeAccount?.nativePointer) return
 
       when (state) {
@@ -93,6 +98,11 @@ internal object LinphoneManager {
           )
         }
       }
+
+      Logger.d(
+        "Registration state mapped linphone=$state " +
+          "sdk=${CallSessionManager.registerState.value}"
+      )
     }
 
     override fun onRegistrationStateChanged(
@@ -113,7 +123,10 @@ internal object LinphoneManager {
         Call.State.OutgoingInit -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
-//          CallSessionManager.updateCallState(CallState.Dialing, message.ifBlank { "Dialing" })
+          CallSessionManager.updateCallState(
+            CallState.Dialing,
+            message.ifBlank { "Dialing" },
+          )
         }
 
         Call.State.OutgoingProgress,
@@ -122,15 +135,22 @@ internal object LinphoneManager {
           -> {
           audioFocusManager?.requestRingingFocus()
           applyPreferredAudioRoute(core)
-//          CallSessionManager.updateCallState(CallState.Ringing, message.ifBlank { "Ringing" })
+          CallSessionManager.updateCallState(
+            CallState.Ringing,
+            message.ifBlank { "Ringing" },
+          )
         }
 
         Call.State.Connected, Call.State.StreamsRunning -> {
           audioFocusManager?.requestCallFocus()
-//          CallSessionManager.updateCallState(CallState.Connected, message.ifBlank { "Connected" })
+          CallSessionManager.updateCallState(
+            CallState.Connected,
+            message.ifBlank { "Connected" },
+          )
         }
 
         Call.State.End, Call.State.Error, Call.State.Released -> {
+          IncomingCallNotificationManager.dismiss()
           val endedState = if (state == Call.State.Error) CallState.Failed else CallState.Ended
           CallSessionManager.updateCallState(endedState, message.ifBlank { endedState.name })
           if (state == Call.State.End || state == Call.State.Error || state == Call.State.Released) {
@@ -141,17 +161,27 @@ internal object LinphoneManager {
 
         Call.State.IncomingReceived -> {
           activeCall = call
-          val params = core.createCallParams(call)
-          if (params == null) {
-            activeCall?.accept()
+          CallSessionManager.updateCallState(
+            CallState.Ringing,
+            message.ifBlank { "Incoming call" },
+          )
+          val caller = call.remoteAddress?.username.orEmpty()
+          if (!CallSessionManager.isIncoming) {
+            answerIncomingCall()
+            Logger.d("Incoming call auto-accepted for hitCallApi flow caller=$caller")
           } else {
-            activeCall?.acceptWithParams(params)
+            val callerLabel = caller.ifBlank { "Unknown caller" }
+            IncomingCallNotificationManager.show(callerLabel)
+            Logger.d("Incoming call notification shown caller=$callerLabel")
           }
         }
 
         else -> Unit
       }
 
+      Logger.d(
+        "Call state mapped linphone=$state sdk=${CallSessionManager.callState.value}"
+      )
       refreshAudioState()
     }
 
@@ -222,6 +252,13 @@ internal object LinphoneManager {
 
     val accountParams = linphoneCore.createAccountParams()
     accountParams.identityAddress = identity
+
+    val natPolicy = linphoneCore.createNatPolicy()
+    natPolicy.isIceEnabled = false
+    natPolicy.isStunEnabled = false
+    natPolicy.isTurnEnabled = false
+    accountParams.natPolicy = natPolicy
+    Logger.d("Linphone ICE disabled for account registration")
 
     val serverAddress = Factory.instance().createAddress("sip:$normalizedDomain")
     serverAddress?.transport = TransportType.Udp
@@ -351,11 +388,37 @@ internal object LinphoneManager {
   fun endCall() {
     if (!initialized) return
 
+    IncomingCallNotificationManager.dismiss()
     val linphoneCore = core ?: return
     linphoneCore.terminateAllCalls()
     activeCall = null
     audioFocusManager?.releaseFocus()
     refreshAudioState()
+  }
+
+  fun answerIncomingCall() {
+    val linphoneCore = requireNotNull(core) { "Linphone core is missing." }
+    val call = requireNotNull(activeCall) { "No incoming call to answer." }
+    applyPreferredAudioRoute(linphoneCore)
+    audioFocusManager?.requestCallFocus()
+
+    val params = linphoneCore.createCallParams(call)
+    if (params == null) {
+      call.accept()
+    } else {
+      call.acceptWithParams(params)
+    }
+    IncomingCallNotificationManager.dismiss()
+    Logger.d("Incoming call answered")
+  }
+
+  fun rejectIncomingCall() {
+    IncomingCallNotificationManager.dismiss()
+    activeCall?.terminate()
+    activeCall = null
+    audioFocusManager?.releaseFocus()
+    CallSessionManager.updateCallState(CallState.Ended, "Incoming call rejected")
+    Logger.d("Incoming call rejected")
   }
 
   fun sendDtmf(value: String): Boolean {

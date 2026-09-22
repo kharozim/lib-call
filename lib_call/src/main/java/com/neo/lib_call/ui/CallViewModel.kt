@@ -43,6 +43,7 @@ internal data class CallUiState(
 internal class CallViewModel(
   private val request: CallRequest,
   private val timerManager: TimerManager,
+  val isIncomingCall: Boolean = false,
 ) : ViewModel() {
   private val registeredAccount = requireNotNull(LinphoneManager.activeSipAccountOrNull()) {
     "SIP account is not registered. Call CallSdk.register(...) first."
@@ -216,6 +217,8 @@ internal class CallViewModel(
   private fun startCall() {
     viewModelScope.launch {
       try {
+        CallSessionManager.isIncoming = false
+        Logger.d("Call flow started through hitCallApi; isIncoming=false")
         CallSessionManager.updateCallState(CallState.Initializing, "Preparing call")
         check(CallSessionManager.registerState.value == RegisterState.Ok) {
           "SIP account is not registered. Call CallSdk.register(...) first."
@@ -252,12 +255,25 @@ internal class CallViewModel(
   }
 
   fun beginCall() {
+    if (isIncomingCall) return
     if (_uiState.value.callState == CallState.Initializing ||
       _uiState.value.callState == CallState.Dialing
     ) {
       return
     }
     startCall()
+  }
+
+  fun answerIncomingCall() {
+    if (!isIncomingCall) return
+    try {
+      LinphoneManager.answerIncomingCall()
+    } catch (throwable: Throwable) {
+      Logger.e("Unable to answer incoming call", throwable)
+      _uiState.update { current ->
+        current.copy(fatalError = throwable.message ?: "Failed to answer incoming call")
+      }
+    }
   }
 
   fun setFatalError(message: String) {
@@ -305,6 +321,8 @@ internal class CallViewModel(
   }
 
   override fun onCleared() {
+    CallSessionManager.isIncoming = true
+    Logger.d("Call page closed; isIncoming=true")
     super.onCleared()
     CallSessionManager.resetCallSession()
     CallWebSocket.closeWebSocketConnection()
@@ -313,11 +331,16 @@ internal class CallViewModel(
   class Factory(
     private val request: CallRequest,
     private val timerManager: TimerManager,
+    private val isIncomingCall: Boolean = false,
   ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
       if (modelClass.isAssignableFrom(CallViewModel::class.java)) {
-        return CallViewModel(request, timerManager = timerManager) as T
+        return CallViewModel(
+          request,
+          timerManager = timerManager,
+          isIncomingCall = isIncomingCall,
+        ) as T
       }
       throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }

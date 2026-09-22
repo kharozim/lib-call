@@ -3,6 +3,7 @@ package com.neo.lib_call.core
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
+import com.neo.lib_call.util.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -41,6 +42,8 @@ internal data class CallResponse(
 
 internal object HitApiManager {
 
+  private const val CALL_API_URL = "http://147.139.193.218/ami/api/v1/call"
+
   private val client = OkHttpClient.Builder()
     .connectTimeout(15, TimeUnit.SECONDS)
     .readTimeout(15, TimeUnit.SECONDS)
@@ -56,13 +59,19 @@ internal object HitApiManager {
       val body = jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType())
 
       val httpRequest = Request.Builder()
-        .url("https://api-dial.neokarya.co.id/ami/api/v1/call")
+        .url(CALL_API_URL)
         .post(body)
         .addHeader("Accept", "application/json")
         .build()
 
+      Logger.d("hitCallApi request: ${httpRequest.method} ${httpRequest.url}")
+      Logger.d("hitCallApi request payload: $jsonBody")
+
       client.newCall(httpRequest).execute().use { response ->
         val responseBody = response.body.string()
+
+        Logger.d("hitCallApi response: ${response.code} ${response.message}")
+        Logger.d("hitCallApi response body: $responseBody")
 
         if (response.isSuccessful) {
           try {
@@ -80,6 +89,7 @@ internal object HitApiManager {
       }
 
     } catch (e: Exception) {
+      Logger.e("hitCallApi exception: ${e.message}", e)
       Result.failure(e)
     }
   }
